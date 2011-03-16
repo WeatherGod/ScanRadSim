@@ -36,5 +36,5 @@ def interp_radar(raddata_t0, raddata_t1, times, motion_vects=None, XYZ=None) :
     #
 
     slope = raddata_t1 - raddata_t0
-    return [(aTime * slope + raddata_t0) for aTime in times]
+    return (times * slope[..., np.newaxis]) + raddata_t0[..., np.newaxis]
 
