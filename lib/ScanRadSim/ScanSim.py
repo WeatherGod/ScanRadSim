@@ -1,57 +1,48 @@
 from BRadar.io import LoadLevel2
-from RadarInterpolator import interp_radar
+#from RadarInterpolator import interp_radar
 from task import Task
+import numpy as np
 
 
 class Simulator(object) :
-    def __init__(self, files, theSys, sched) :
-        if len(files) < 2 :
+    def __init__(self, files) :
+        self.radData = (LoadLevel2(aFile) for aFile in files)
+
+        self.currItem = self.radData.next()
+        self.nextItem = self.radData.next()
+
+        if self.nextItem is None :
             raise(ValueError, "Need at least 2 files for a simulation")
 
-        radData = [LoadLevel2(aFile) for aFile in files]
 
-        # Each element in this list is a 3-D array (elev, azi, range)
-        self.radData = [aTime['vals'] for aTime in radData]
-        self.times = [aTime['scan_time'] for aTime in radData]
-
-        self.aziGrid = radData[0]['azimuth']
-        self.rngGrid = radData[0]['range_gate']
-        self.elvGrid = radData[0]['elev_angle']
-
-        self.adaptSense = theSys
-        self.scheduler = sched
-        self.currIndex = 0
-        self.currView = self.radData[self.currIndex].copy()
-
-    def next(self, timeElapsed) :
-        newTime = self.times[self.currIndex] + timeElapsed
-        if newTime >= self.times[self.currIndex + 1] :
-            # We are onto the next file.
-            self.currIndex += 1
-            self.currView = self.radData[self.currIndex].copy()
-
-        if currIndex >= len(self.times) :
-            return
+        self.currTime = self.currItem['scan_time']
+        self.currView = np.empty_like(self.currItem['vals'])
+        self.currView.fill(np.nan)
+        self._set_slope()
 
 
+    def _set_slope(self) :
+        self._slope = ((self.nextItem['vals'] - self.currItem['vals']) /
+                       float((self.nextItem['scan_time'] -
+                              self.currItem['scan_time']).microseconds))
 
-        newtasks, fintasks = self.adaptSense(self.currView)
+    def update(self, timeElapsed, taskRadials) :
+        # Don't do += because we don't want to modify the original
+        # 'scan_time' value in the first self.currItem
+        self.currTime = self.currTime + timeElapsed
+        if self.currTime >= self.nextItem['scan_time'] :
+            # We move onto the next file.
+            self.currItem = self.nextItem
+            self.nextItem = self.radData.next()
 
-        self.scheduler.remove_tasks(fintasks)
-        self.scheduler.add_tasks(newtasks)
-        doTask = self.scheduler.next_task()
+            if self.nextItem is None :
+                return
 
+            self._set_slope()
 
-        newData = interp_radar(self.radData[currIndex],
-                               self.radData[currIndex + 1],
-                               [float((newTime - self.times[self.currIndex]).microseconds) /
-                                (self.times[self.currIndex + 1] -
-                                 self.times[self.currIndex]).microseconds])
-        taskRadials = doTask.next()
-        self.currView[taskRadials, :] = newData[taskRadials, :]
+        self.currView[taskRadials, :] = (self._slope[taskRadials, :] *
+                                         (self.currTime - self.currItem['scan_time']).microseconds)
 
-        # Return the amount of time to wait until the next schedule
-        return doTask.T
 
 
 from scipy.ndimage.measurements import find_objects, label
@@ -65,7 +56,7 @@ class SimpleSensingSys(object) :
     def __call__(self, radData) :
         tasksToRemove = self.prevTasks
 
-        labels, cnt = label(radData)
+        labels, cnt = label(radData >= 35.0)
         objects = find_objects(labels)
         radialCnts = [(np.mgrid[anObject[:2]]).size // 2 for
                       anObject in objects]
