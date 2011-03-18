@@ -20,22 +20,11 @@ class Simulator(object) :
         self.currView = np.empty_like(self.currItem['vals'])
         self.currView.fill(np.nan)
 
-        # Make a special view of the data for internal purposes.
-        # the point of this is to organize this data as (radials, range_gate).
-        self._internalView = self.currView.view()
-        self._intervalView.shape = (-1, self.currView.shape[-1])
-
-        self._internalnext = self.nextItem['vals'].view()
-        self._internalnext.shape = (-1, self.nextItem['vals'].shape[-1])
-
-        self._internalcurr = self.currItem['vals'].view()
-        self._internalcurr.shape = (-1, self.currItem['vals'].shape[-1])
-
         self._set_slope()
 
 
     def _set_slope(self) :
-        self._slope = ((self._internalnext - self._internalcurr) /
+        self._slope = ((self.nextItem['vals'] - self.currItem['vals']) /
                        self._time_diff(self.currItem['scan_time'],
                                        self.nextItem['scan_time']))
 
@@ -53,12 +42,9 @@ class Simulator(object) :
         if self.currTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
             self.currItem = self.nextItem
-            self._internalcurr = self._internalnext
 
             try :
                 self.nextItem = self.radData.next()
-                self._internalnext = self.nextItem['vals'].view()
-                self._internalnext.shape = (-1, self.nextItem['vals'].shape[-1])
             except StopIteration :
                 return False
             
@@ -66,10 +52,10 @@ class Simulator(object) :
 
         taskRadials = theTask.next()
         #print type(taskRadials)
-        self._internalView[taskRadials] = ((self._slope[taskRadials] *
-                                            self._time_diff(self.currItem['scan_time'],
-                                                            self.currTime)) +
-                                           self._internalcurr[taskRadials])
+        self.currView[taskRadials] = ((self._slope[taskRadials] *
+                                       self._time_diff(self.currItem['scan_time'],
+                                                       self.currTime)) +
+                                      self.currItem['vals'][taskRadials])
 
         return True
 
@@ -96,8 +82,8 @@ class SimpleSensingSys(object) :
         objects = find_objects(labels)
 
         allRadials = [radials + (fullRange,) for radials in objects]
-        radCnts = [np.prod([aSlice.stop - aSlice.start for
-                            aSlice in radials]) for
+        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
+                            aSlice in radials])) for
                    radials in objects]
         
 
