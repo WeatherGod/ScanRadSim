@@ -19,6 +19,9 @@ class Simulator(object) :
         self.currTime = self.currItem['scan_time']
         self.currView = np.empty_like(self.currItem['vals'])
         self.currView.fill(np.nan)
+        self.radialAge = np.empty(self.currItem['vals'].shape[:-1],
+                                  dtype=timedelta)
+        self.radialAge.fill(timedelta(0))
 
         self._set_slope()
 
@@ -39,6 +42,7 @@ class Simulator(object) :
     def update(self, theTask) :
         timeElapsed = theTask.T
         self.currTime += timeElapsed
+        self.radialAge += timeElapsed
         if self.currTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
             self.currItem = self.nextItem
@@ -51,12 +55,12 @@ class Simulator(object) :
             self._set_slope()
 
         taskRadials = theTask.next()
-        #print type(taskRadials)
         self.currView[taskRadials] = ((self._slope[taskRadials] *
                                        self._time_diff(self.currItem['scan_time'],
                                                        self.currTime)) +
                                       self.currItem['vals'][taskRadials])
-
+        # Reset the age of these radials.
+        self.radialAge[taskRadials[:-1]] = timedelta(0)
         return True
 
 
@@ -89,7 +93,7 @@ class SimpleSensingSys(object) :
 
         tasksToAdd = [Task(timedelta(seconds=20),
                            timedelta(milliseconds=10*cnt),
-                           radials, prt=10000) for
+                           (radials,), prt=10000) for
                       radials, cnt in zip(allRadials, radCnts) if
                       cnt >= 20]
         
