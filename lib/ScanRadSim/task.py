@@ -78,9 +78,8 @@ class ChunkIter(object) :
         return self
 
     def next(self) :
-        start = self._radIndex
-        stop = (self._radIndex + self.chunksize) % (self._stop - self._start)
+        start = self._radIndex % (self._stop - self._start)
+        stop = min((start + self.chunksize),
+                   (self._stop - self._start))
         self._radIndex = stop
         return (slice(start + self._start, stop + self._start, None), slice(None, None, None))
-
-
