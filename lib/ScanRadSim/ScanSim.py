@@ -2,7 +2,7 @@ from BRadar.io import LoadLevel2
 #from RadarInterpolator import interp_radar
 from task import Task
 import numpy as np
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 
 class Simulator(object) :
@@ -16,12 +16,11 @@ class Simulator(object) :
             raise(ValueError, "Need at least 2 files for a simulation")
 
 
-        self.currTime = self.currItem['scan_time']
         self.currView = np.empty_like(self.currItem['vals'])
         self.currView.fill(np.nan)
         self.radialAge = np.empty(self.currItem['vals'].shape[:-1],
-                                  dtype=timedelta)
-        self.radialAge.fill(timedelta(0))
+                                  dtype=datetime)
+        self.radialAge.fill(self.currItem['scan_time'])
 
         self._set_slope()
 
@@ -39,11 +38,8 @@ class Simulator(object) :
         timediff = time2 - time1
         return timediff.seconds + (timediff.microseconds * 1e-6)
 
-    def update(self, theTask) :
-        timeElapsed = theTask.T
-        self.currTime += timeElapsed
-        self.radialAge += timeElapsed
-        if self.currTime >= self.nextItem['scan_time'] :
+    def update(self, theTime, theTask) :
+        if theTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
             self.currItem = self.nextItem
 
@@ -57,10 +53,10 @@ class Simulator(object) :
         taskRadials = theTask.next()
         self.currView[taskRadials] = ((self._slope[taskRadials] *
                                        self._time_diff(self.currItem['scan_time'],
-                                                       self.currTime)) +
+                                                       theTime)) +
                                       self.currItem['vals'][taskRadials])
         # Reset the age of these radials.
-        self.radialAge[taskRadials[:-1]] = timedelta(0)
+        self.radialAge[taskRadials[:-1]] = theTime
         return True
 
 
@@ -91,8 +87,8 @@ class SimpleSensingSys(object) :
                    radials in objects]
         
 
-        tasksToAdd = [Task(timedelta(seconds=20),
-                           timedelta(milliseconds=10*cnt),
+        tasksToAdd = [Task(timedelta(seconds=40),
+                           timedelta(milliseconds=1*cnt),
                            (radials,), prt=10000) for
                       radials, cnt in zip(allRadials, radCnts) if
                       cnt >= 20]
