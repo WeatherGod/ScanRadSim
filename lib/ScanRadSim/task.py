@@ -16,6 +16,7 @@ class Task(object) :
 
         # Just keep doing these radials over and over...
         self.radials = cycle(radials)
+        self.currslice = None
 
         if dwellTime is None :
             dwellTime = timeFragment * len(radials)
@@ -30,7 +31,8 @@ class Task(object) :
         return self
 
     def next(self) :
-        return self.radials.next()
+        self.currslice = self.radials.next()
+        return self.currslice
 
 
 class Surveillance(Task) :
