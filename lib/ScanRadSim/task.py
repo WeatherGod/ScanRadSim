@@ -45,7 +45,7 @@ class Surveillance(Task) :
         timeFragment must be a timedelta object from the datetime module.
         dwellTime and prt must be an int in units of microseconds.
         gridshape must be a tuple of ints representing the shape of the
-            numpy array representing the radar grid.
+            radar grid that this surveillance task is responsible for.
         """
         scanVol = [slice(0, shape, 1) for shape in gridshape]
         radialCnt = int(np.prod(gridshape[:-1]))
@@ -54,7 +54,7 @@ class Surveillance(Task) :
         # How many radials can we process within a time fragment?
         chunkLen = int(((timeFragment.seconds * 1e6) + timeFragment.microseconds) // dwellTime)
 
-        print "ChunkLen:", chunkLen, "   GridShape:", gridshape
+        #print "ChunkLen:", chunkLen, "   GridShape:", gridshape
 
         if prt is None :
             # For now, just assume ten samples per dwell...
