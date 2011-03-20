@@ -45,7 +45,10 @@ class Simulator(object) :
         """
         return _to_seconds(time2 - time1)
 
-    def update(self, theTime, theTasks) :
+    def update(self, theTime, theTasks, volume=None) :
+        if volume is None :
+            volume = (slice(None),slice(None),slice(None))
+
         if theTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
             self.currItem = self.nextItem
@@ -62,12 +65,12 @@ class Simulator(object) :
                 continue
 
             taskRadials = aTask.next()
-            self.currView[taskRadials] = ((self._slope[taskRadials] *
+            self.currView[volume][taskRadials] = ((self._slope[volume][taskRadials] *
                                            self._time_diff(self.currItem['scan_time'],
                                                            theTime)) +
-                                          self.currItem['vals'][taskRadials])
+                                          self.currItem['vals'][volume][taskRadials])
             # Reset the age of these radials.
-            self.radialAge[taskRadials[:-1]] = theTime
+            self.radialAge[volume[:-1]][taskRadials[:-1]] = theTime
 
         return True
 
@@ -77,8 +80,12 @@ class SimpleSensingSys(object) :
     """
     Just scan for every contiguous +35dBz region.
     """
-    def __init__(self) :
+    def __init__(self, volume=None) :
         self.prevTasks = []
+        if volume is None :
+            volume = (slice(None), slice(None), slice(None))
+
+        self.volume = volume
 
     def __call__(self, radData) :
         tasksToRemove = self.prevTasks
@@ -89,7 +96,7 @@ class SimpleSensingSys(object) :
         fullRange = slice(None, None, None)
 
         # Find the maximum value along each radial.
-        maxView = np.nanmax(radData, axis=-1)
+        maxView = np.nanmax(radData[self.volume], axis=-1)
         labels, cnt = label(maxView >= 35.0)
         objects = find_objects(labels)
 
