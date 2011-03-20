@@ -45,7 +45,7 @@ class Simulator(object) :
         """
         return _to_seconds(time2 - time1)
 
-    def update(self, theTime, theTask) :
+    def update(self, theTime, theTasks) :
         if theTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
             self.currItem = self.nextItem
@@ -57,13 +57,18 @@ class Simulator(object) :
             
             self._set_slope()
 
-        taskRadials = theTask.next()
-        self.currView[taskRadials] = ((self._slope[taskRadials] *
-                                       self._time_diff(self.currItem['scan_time'],
-                                                       theTime)) +
-                                      self.currItem['vals'][taskRadials])
-        # Reset the age of these radials.
-        self.radialAge[taskRadials[:-1]] = theTime
+        for aTask in theTasks :
+            if aTask is None :
+                continue
+
+            taskRadials = aTask.next()
+            self.currView[taskRadials] = ((self._slope[taskRadials] *
+                                           self._time_diff(self.currItem['scan_time'],
+                                                           theTime)) +
+                                          self.currItem['vals'][taskRadials])
+            # Reset the age of these radials.
+            self.radialAge[taskRadials[:-1]] = theTime
+
         return True
 
 
