@@ -5,6 +5,14 @@ import numpy as np
 from datetime import timedelta, datetime
 
 
+def _to_seconds(timediff) :
+    """
+    Takes the timedelta object and return the
+    floating point value of the time difference
+    in seconds.
+    """
+    return (86400.0 * timediff.days) + timediff.seconds + (1e-6 * timediff.microseconds)
+
 class Simulator(object) :
     def __init__(self, files) :
         self.radData = (LoadLevel2(aFile) for aFile in files)
@@ -35,8 +43,7 @@ class Simulator(object) :
         Return the time difference in units of seconds,
         including the microsecond portion.
         """
-        timediff = time2 - time1
-        return timediff.seconds + (timediff.microseconds * 1e-6)
+        return _to_seconds(time2 - time1)
 
     def update(self, theTime, theTask) :
         if theTime >= self.nextItem['scan_time'] :
