@@ -11,8 +11,12 @@ class Task(object) :
         radials will be any iterator that returns an item that can be used to
         access a part or sector of a numpy array upon a call to next()
         """
+        if updatePeriod < timeFragment :
+            raise ValueError("The update period of a task can not be shorter than its time fragment.")
+
         self.U = updatePeriod
         self.T = timeFragment
+        self.is_running = False
 
         # Just keep doing these radials over and over...
         self.radials = cycle(radials)
