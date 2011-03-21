@@ -42,14 +42,22 @@ class Task(object) :
 
 
 class Surveillance(Task) :
-    def __init__(self, timeFragment, dwellTime, gridshape, prt=None) :
+    def __init__(self, timeFragment, dwellTime, gridshape, slices=None, prt=None) :
         """
         timeFragment must be a timedelta object from the datetime module.
         dwellTime and prt must be an int in units of microseconds.
         gridshape must be a tuple of ints representing the shape of the
-            radar grid that this surveillance task is responsible for.
+            entire radar grid.
+        slices is a tuple that represents the portion of the grid
+            this surveillance task is responsible for. If None, then
+            assume the entire grid.
         """
-        scanVol = [slice(0, shape, 1) for shape in gridshape]
+        if slices is None :
+            slices = [slice(0, shape, 1) for shape in gridshape]
+
+        gridshape = [len(range(*aSlice.indices(shape))) for
+                     aSlice, shape in zip(slices, gridshape)]
+
         radialCnt = int(np.prod(gridshape[:-1]))
         updatePeriod = datetime.timedelta(microseconds=dwellTime * radialCnt)
         #print "Surveillance Grid:", gridshape, radialCnt, dwellTime, updatePeriod
@@ -63,8 +71,18 @@ class Surveillance(Task) :
             # For now, just assume ten samples per dwell...
             prt = int(timeFragment.seconds * 1e6 + timeFragment.microseconds) // (10 * radialCnt)
 
+        # Get the slice-chunking iterator for this task.
+        iterChunk = ChunkIter(gridshape, chunkLen)
+
+        # Because of how slice-chunking works, we might not have
+        # gotten exactly the requested timeFragment.  This adjusts
+        # that amount to a much closer figure.
+        chunkCnt = np.prod(iterChunk._chunkCnts)
+        chunkLen = int(np.ceil(radialCnt / chunkCnt))
+        timeFragment = datetime.timedelta(microseconds=chunkLen * dwellTime)
+
         Task.__init__(self, updatePeriod, timeFragment,
-                            ChunkIter(gridshape, chunkLen, scanVol),
+                            ChunkIter(gridshape, chunkLen),
                             dwellTime, prt)
 
 
@@ -130,6 +148,7 @@ class SplitIter(object) :
             section_sizes = [0] + \
                             ([Neach_section+1] * extras) + \
                             ([Neach_section] * (Nsections-extras))
+
             div_points = np.cumsum(section_sizes) + slices[axis].start
 
         otherAxes = range(len(gridshape))
@@ -167,6 +186,8 @@ class SplitIter(object) :
         # This member will contain the current slices.
         self.slices = [None] * len(gridshape)
 
+        self._started = False
+
     def __iter__(self) :
         return self
 
@@ -174,10 +195,23 @@ class SplitIter(object) :
         for axisIndex in self._cycleList :
             self._chunkIndices[axisIndex] += 1
             self.slices[axisIndex] = self._chunkIters[axisIndex].next()
+
             if self._chunkIndices[axisIndex] >= self._chunkCnts[axisIndex] :
-                self._chunkIndices[axisIndex] = 0
+
+                # This axis needs cycling.
+                if (axisIndex != self._cycleList[-1] or
+                    not self._started) :
+                    # If we are not trying to wrap the last axis, then carry on!
+                    self._chunkIndices[axisIndex] = 0
+                else :
+                    # This is the last axis, so let's stop the iteration.
+                    raise StopIteration
             else :
+                # This axis didn't need cycling, so we don't need to worry about
+                # the rest of the axes this time around.
                 break
+
+        self._started = True
         return self.slices[:]
 
        
@@ -218,8 +252,7 @@ class ChunkIter(SplitIter) :
 
         if 0 in extras :
             # One of the axes fitted perfectly!
-            axis = extras.index(0)
-            section_sizes = [chunksize] * (Nfitsects[axis] - 1)
+            axis = extras.tolist().index(0)
             chunkCnt = Nfitsects[axis]
         else :
             # Since none fitted perfectly, we want the most
@@ -230,19 +263,9 @@ class ChunkIter(SplitIter) :
             packing = ((extras + (chunksize * Nfitsects)) /
                        (chunksize * (Nfitsects + 1.0)))
             axis = np.argmax(packing)
-            section_sizes = [extras[axis]] + \
-                            [chunksize] * (Nfitsects[axis] - 1)
             chunkCnt = Nfitsects[axis] + 1
 
-        if chunkCnt == 1 :
-            # Special case, need to make sure that
-            # It does not produce any zero-length chunks.
-            section_sizes = []
-
-
-        div_points = np.array(section_sizes).cumsum() + slices[axis].start
-
-        SplitIter.__init__(self, gridshape[:-1], div_points, axis,
+        SplitIter.__init__(self, gridshape[:-1], chunkCnt, axis,
                            [slice(*aView) for aView in views[:-1]])
 
         # Add a final element onto this tuple representing the
@@ -253,7 +276,8 @@ class ChunkIter(SplitIter) :
 
 
 if __name__ == '__main__' :
-    a = ChunkIter((40, 55, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
+    #a = ChunkIter((40, 5, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
+    a = SplitIter((366,), 4, axis=0)
 
     print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts
     print a.slices, "  |||  ", a._chunkIndices
