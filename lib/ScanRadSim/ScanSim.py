@@ -1,6 +1,5 @@
 from BRadar.io import LoadLevel2
 #from RadarInterpolator import interp_radar
-from task import Task
 import numpy as np
 from datetime import timedelta, datetime
 
@@ -75,42 +74,3 @@ class Simulator(object) :
         return True
 
 
-from scipy.ndimage.measurements import find_objects, label
-class SimpleSensingSys(object) :
-    """
-    Just scan for every contiguous +35dBz region.
-    """
-    def __init__(self, volume=None) :
-        self.prevTasks = []
-        if volume is None :
-            volume = (slice(None), slice(None), slice(None))
-
-        self.volume = volume
-
-    def __call__(self, radData) :
-        tasksToRemove = self.prevTasks
-
-        # The label and find_objects will slice only the
-        # relevant radials, but we still need something to
-        # represent the entire length of the radial.
-        fullRange = slice(None, None, None)
-
-        # Find the maximum value along each radial.
-        maxView = np.nanmax(radData[self.volume], axis=-1)
-        labels, cnt = label(maxView >= 35.0)
-        objects = find_objects(labels)
-
-        allRadials = [radials + (fullRange,) for radials in objects]
-        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
-                            aSlice in radials])) for
-                   radials in objects]
-        
-
-        tasksToAdd = [Task(timedelta(seconds=40),
-                           timedelta(milliseconds=1*cnt),
-                           (radials,), prt=10000) for
-                      radials, cnt in zip(allRadials, radCnts) if
-                      cnt >= 20]
-        
-        self.prevTasks = tasksToAdd
-        return tasksToAdd, tasksToRemove
