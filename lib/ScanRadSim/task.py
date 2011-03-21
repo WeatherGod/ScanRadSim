@@ -12,7 +12,9 @@ class Task(object) :
         access a part or sector of a numpy array upon a call to next()
         """
         if updatePeriod < timeFragment :
-            raise ValueError("The update period of a task can not be shorter than its time fragment.")
+            print "WARNING: The update period of a task should not be shorter than its time fragment:"
+            print "    Update Period:", updatePeriod, "   Time Fragment:", timeFragment
+            #raise ValueError("The update period of a task can not be shorter than its time fragment.")
 
         self.U = updatePeriod
         self.T = timeFragment
@@ -50,6 +52,7 @@ class Surveillance(Task) :
         scanVol = [slice(0, shape, 1) for shape in gridshape]
         radialCnt = int(np.prod(gridshape[:-1]))
         updatePeriod = datetime.timedelta(microseconds=dwellTime * radialCnt)
+        #print "Surveillance Grid:", gridshape, radialCnt, dwellTime, updatePeriod
         
         # How many radials can we process within a time fragment?
         chunkLen = int(((timeFragment.seconds * 1e6) + timeFragment.microseconds) // dwellTime)
@@ -205,9 +208,12 @@ class ChunkIter(SplitIter) :
         # and how many remaining elements in the remaining mis-fit section.
         Nfitsects, extras = zip(*[divmod(len(range(*aView)), chunksize) for
                                   aView in views[:-1]])
+
+        Nfitsects = np.array(Nfitsects)
+        extras = np.array(extras)
         
         # The divmod is zero if chunksize is greater than size.
-        if np.all(np.array(Nfitsects) == 0) :
+        if np.all(Nfitsects == 0) :
             raise ValueError("chunksize must be smaller than or equal to at least one of the dimensions")
 
         if 0 in extras :
@@ -220,10 +226,19 @@ class ChunkIter(SplitIter) :
             # efficient fit, which means that the mis-fit
             # section should still be as close as possible
             # to the expected chunksize.
-            axis = np.argmax(extras)
+            # We find the axis that has the best packing efficiency
+            packing = ((extras + (chunksize * Nfitsects)) /
+                       (chunksize * (Nfitsects + 1.0)))
+            axis = np.argmax(packing)
             section_sizes = [extras[axis]] + \
                             [chunksize] * (Nfitsects[axis] - 1)
             chunkCnt = Nfitsects[axis] + 1
+
+        if chunkCnt == 1 :
+            # Special case, need to make sure that
+            # It does not produce any zero-length chunks.
+            section_sizes = []
+
 
         div_points = np.array(section_sizes).cumsum() + slices[axis].start
 
@@ -238,7 +253,7 @@ class ChunkIter(SplitIter) :
 
 
 if __name__ == '__main__' :
-    a = ChunkIter((40, 55, 1000), 40, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
+    a = ChunkIter((40, 55, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
 
     print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts
     print a.slices, "  |||  ", a._chunkIndices
