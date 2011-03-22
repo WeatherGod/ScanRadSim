@@ -1,4 +1,4 @@
-
+import numpy as np
 from datetime import timedelta
 
 
@@ -10,6 +10,7 @@ class TaskScheduler(object) :
         assert(concurrent_max >= 1)
         self.active_tasks = [None] * concurrent_max
         self._active_time = [None] * concurrent_max
+        self.jobs = []
 
     def increment_timer(self, timeElapsed) :
         for index, aTask in enumerate(self.active_tasks) :
@@ -24,6 +25,26 @@ class TaskScheduler(object) :
         """
         return any([(activeTask is None) for
                     activeTask in self.active_tasks])
+
+    def add_jobs(self, jobs) :
+        self.jobs.extend(jobs)
+
+    def rm_jobs(self, jobs) :
+        # Slate these jobs for removal.
+        # Note that you can't remove active operations until they are done.
+        # We will go ahead and remove any jobs with inactive operation, and defer
+        # the removal of jobs with active operations until later.
+        # Impementation Note: This actually isn't all that complicated,
+        #                     due to the reference counting of python.
+        #                     Just delete the job from the self.jobs
+        #                     list and when the job is done in the
+        #                     active list, it will finally be deleted.
+        findargs = [self.jobs.index(aJob) for aJob in jobs]
+        args = np.argsort(findargs)[::-1]
+        for anItem in args :
+            del self.jobs[findargs[anItem]]
+
+        return findargs, args
 
     def next_task(self) :
         raise NotImplementedError("next_task() needs to be implemented by the derived class!")

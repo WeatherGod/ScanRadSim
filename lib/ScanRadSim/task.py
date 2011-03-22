@@ -2,7 +2,7 @@ from itertools import cycle
 import datetime
 import numpy as np
 
-class Task(object) :
+class ScanJob(object) :
     def __init__(self, updatePeriod, timeFragment, radials, dwellTime=None, prt=None) :
         """
         updatePeriod, timeFragment must be timedeltas from datetime module.
@@ -41,7 +41,7 @@ class Task(object) :
         return self.currslice
 
 
-class Surveillance(Task) :
+class Surveillance(ScanJob) :
     def __init__(self, timeFragment, dwellTime, gridshape, slices=None, prt=None) :
         """
         timeFragment must be a timedelta object from the datetime module.
@@ -81,7 +81,7 @@ class Surveillance(Task) :
         chunkLen = int(np.ceil(radialCnt / chunkCnt))
         timeFragment = datetime.timedelta(microseconds=chunkLen * dwellTime)
 
-        Task.__init__(self, updatePeriod, timeFragment,
+        ScanJob.__init__(self, updatePeriod, timeFragment,
                             ChunkIter(gridshape, chunkLen),
                             dwellTime, prt)
 

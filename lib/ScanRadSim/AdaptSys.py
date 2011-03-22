@@ -1,4 +1,4 @@
-from task import Task
+from task import ScanJob
 import numpy as np
 from datetime import timedelta, datetime
 
@@ -19,7 +19,7 @@ class AdaptSenseSys(object) :
 
 class NullSensingSys(AdaptSenseSys) :
     """
-    Does not produce any adaptive scaning tasks.
+    Does not produce any adaptive scaning jobs.
     """
     def __call__(self, radData) :
         return [], []
@@ -31,11 +31,11 @@ class SimpleSensingSys(AdaptSenseSys) :
     Just scan for every contiguous +35dBz region.
     """
     def __init__(self, volume=None) :
-        self.prevTasks = []
+        self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
 
     def __call__(self, radData) :
-        tasksToRemove = self.prevTasks
+        jobsToRemove = self.prevJobs
 
         # The label and find_objects will slice only the
         # relevant radials, but we still need something to
@@ -52,11 +52,12 @@ class SimpleSensingSys(AdaptSenseSys) :
                             aSlice in radials])) for
                    radials in objects]
         
-        tasksToAdd = [Task(timedelta(seconds=40),
+        jobsToAdd = [ScanJob(timedelta(seconds=40),
                            timedelta(microseconds=64000*cnt),
                            (radials,), prt=800) for
                       radials, cnt in zip(allRadials, radCnts) if
                       cnt >= 20]
 
-        self.prevTasks = tasksToAdd
-        return tasksToAdd, tasksToRemove
+        self.prevJobs = jobsToAdd
+        return jobsToAdd, jobsToRemove
+
