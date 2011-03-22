@@ -1,4 +1,5 @@
 from task import StaticJob
+from NDIter import ChunkIter
 import numpy as np
 from datetime import timedelta, datetime
 
@@ -44,19 +45,35 @@ class SimpleSensingSys(AdaptSenseSys) :
 
         # Find the maximum value along each radial.
         maxView = np.nanmax(radData[self.volume], axis=-1)
+        #envTotRads = np.prod(radData[self.volume].shape[:-1])
         labels, cnt = label(maxView >= 35.0)
+
+        if cnt == 0 :
+            return [], jobsToRemove
+
         objects = find_objects(labels)
 
         allRadials = [radials + (fullRange,) for radials in objects]
         radCnts = [int(np.prod([aSlice.stop - aSlice.start for
-                            aSlice in radials])) for
+                                aSlice in radials])) for
                    radials in objects]
+        widths = [radials[1].stop - radials[1].start for
+                  radials in objects]
+
+        #print "Rad Counts:", radCnts
+        # Filter out the small storms
+        allRadials = [radials for radials, cnt in zip(allRadials, radCnts) if cnt >= 20]
+        widths = [width for width, cnt in zip(widths, radCnts) if cnt >= 20]
+        radCnts = [cnt for cnt in radCnts if cnt >= 20]
+
+        #totScanRads = sum(radCnts)
+        gridshape = radData[self.volume].shape
         
-        jobsToAdd = [StaticJob(timedelta(seconds=40), (radials,),
-                               dwellTime=timedelta(microseconds=64000*cnt),
+        jobsToAdd = [StaticJob(timedelta(seconds=40),
+                               ChunkIter(gridshape, width, radials),
+                               dwellTime=timedelta(microseconds=64000 * width),
                                prt=timedelta(microseconds=800)) for
-                      radials, cnt in zip(allRadials, radCnts) if
-                      cnt >= 20]
+                     radials, cnt, width in zip(allRadials, radCnts, widths)]
 
         self.prevJobs = jobsToAdd
         return jobsToAdd, jobsToRemove

@@ -60,10 +60,12 @@ class Simulator(object) :
             self._set_slope()
 
         for aTask in theTasks :
-            if aTask is None :
+            if aTask is None or aTask.is_running :
                 continue
 
-            taskRadials = aTask.next()
+            aTask.is_running = True
+            taskRadials = aTask.currslice
+            #print aTask, taskRadials
             self.currView[volume][taskRadials] = ((self._slope[volume][taskRadials] *
                                            self._time_diff(self.currItem['scan_time'],
                                                            theTime)) +
