@@ -126,7 +126,7 @@ class SplitIter(BaseNDIter) :
         if slices is None :
             slices = [slice(0, size, 1) for size in gridshape]
 
-        print slices, axis, gridshape
+        #print slices, axis, gridshape
         Ntotal = len(range(*slices[axis].indices(gridshape[axis])))
 
         try:
