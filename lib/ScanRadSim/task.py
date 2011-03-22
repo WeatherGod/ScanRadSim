@@ -23,6 +23,7 @@ class ScanJob(object) :
     def __init__(self, updatePeriod, radials, dwellTime, prt=None, doCycle=False) :
         """
         updatePeriod must be a timedelta from the datetime module.
+            It represents the period at which the radials are iterated over
 
         dwellTime and prt are also timedelta objects
 
@@ -54,20 +55,21 @@ class ScanJob(object) :
         return self.currslice
 
 class StaticJob(ScanJob) :
-    def __init__(self, updatePeriod, radials, dwellTime, prt=None) :
+    def __init__(self, updatePeriod, radials, dwellTime, prt=None, doCycle=True) :
         """
-        updatePeriod must be a timedelta from datetime module.
+        updatePeriod must be a timedelta from datetime module and represents the
+            period of time between calls to next() from the radials iterator.
         dwellTime and prt are also timedelta objects
 
         radials will be any iterator that returns an item that can be used to
-        access a part or sector of a numpy array upon a call to next()
+            access a part or sector of a numpy array upon a call to next()
         """
         timeToComplete = len(radials) * dwellTime
         if updatePeriod < timeToComplete :
             updatePeriod = timeToComplete
 
         self.T = timeToComplete
-        ScanJob.__init__(self, updatePeriod, radials, dwellTime, prt, doCycle=True)
+        ScanJob.__init__(self, updatePeriod, radials, dwellTime, prt, doCycle)
 
 
 class Surveillance(ScanJob) :
