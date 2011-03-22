@@ -27,6 +27,9 @@ class BaseNDIter(object) :
         self.slices = [None] * len(chunkIters)
         self._started = False
 
+    def __len__(self) :
+        return np.prod(self._chunkCnts)
+
     def __iter__(self) :
         return self
 
@@ -234,7 +237,7 @@ if __name__ == '__main__' :
     #a = ChunkIter((40, 5, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
     a = SplitIter((366,), 4, axis=0)
 
-    print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts
+    print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
     print a.slices, "  |||  ", a._chunkIndices
 
     for index, theSlice in zip(xrange(25), a) :
