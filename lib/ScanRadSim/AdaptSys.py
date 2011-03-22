@@ -1,4 +1,4 @@
-from task import ScanJob
+from task import StaticJob
 import numpy as np
 from datetime import timedelta, datetime
 
@@ -52,9 +52,9 @@ class SimpleSensingSys(AdaptSenseSys) :
                             aSlice in radials])) for
                    radials in objects]
         
-        jobsToAdd = [ScanJob(timedelta(seconds=40),
-                           timedelta(microseconds=64000*cnt),
-                           (radials,), prt=800) for
+        jobsToAdd = [StaticJob(timedelta(seconds=40), (radials,),
+                               dwellTime=timedelta(microseconds=64000*cnt),
+                               prt=timedelta(microseconds=800)) for
                       radials, cnt in zip(allRadials, radCnts) if
                       cnt >= 20]
 

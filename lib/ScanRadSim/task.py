@@ -2,36 +2,48 @@ from itertools import cycle
 import datetime
 import numpy as np
 
+
+class ScanOperation(object) :
+    def __init__(self, radSlice, tx_time, rx_time, wait_time=0) :
+        """
+        Times for the three parts of any scan operation in microseconds (integers only!).
+        tx == transmit
+        rx == receive
+
+        A Scan Operation can not be pre-empted during the transmit and receive modes.
+        """
+        self.tx_time = tx_time
+        self.rx_time = rx_time
+        self.wait_time = wait_time
+        self.radSlice = radSlice
+
+
 class ScanJob(object) :
-    def __init__(self, updatePeriod, timeFragment, radials, dwellTime=None, prt=None) :
+    def __init__(self, updatePeriod, radials, dwellTime, prt=None, doCycle=False) :
         """
-        updatePeriod, timeFragment must be timedeltas from datetime module.
-        dwellTime and prt must be ints in units of microseconds.
+        updatePeriod must be a timedelta from the datetime module.
 
-        radials will be any iterator that returns an item that can be used to
-        access a part or sector of a numpy array upon a call to next()
+        dwellTime and prt are also timedelta objects
+
+        radials is any iterator that returns an object that
+            can be used to access a part of a numpy array upon
+            a call to next().
+
+        doCycle will indicate whether or not to cycle through
+        the radials.  Default is False.
         """
-        if updatePeriod < timeFragment :
-            print "WARNING: The update period of a task should not be shorter than its time fragment:"
-            print "    Update Period:", updatePeriod, "   Time Fragment:", timeFragment
-            #raise ValueError("The update period of a task can not be shorter than its time fragment.")
-
         self.U = updatePeriod
-        self.T = timeFragment
         self.is_running = False
+        self.radials = cycle(radials) if doCycle else radials
+        self.dwell_time = dwellTime
 
-        # Just keep doing these radials over and over...
-        self.radials = cycle(radials)
-        self.currslice = None
-
-        if dwellTime is None :
-            dwellTime = timeFragment * len(radials)
         if prt is None :
-            # For now, just assume ten samples per dwell
-            prt = timeFragment / (10 * len(radials))
+            # For now, assume 10 samples per dwell
+            prt = dwellTime / 10
 
-        self.dwellTime = dwellTime
         self.prt = prt
+
+        self.currslice = None
 
     def __iter__(self) :
         return self
@@ -40,16 +52,31 @@ class ScanJob(object) :
         self.currslice = self.radials.next()
         return self.currslice
 
+class StaticJob(ScanJob) :
+    def __init__(self, updatePeriod, radials, dwellTime, prt=None) :
+        """
+        updatePeriod must be a timedelta from datetime module.
+        dwellTime and prt are also timedelta objects
+
+        radials will be any iterator that returns an item that can be used to
+        access a part or sector of a numpy array upon a call to next()
+        """
+        timeToComplete = len(radials) * dwellTime
+        if updatePeriod < timeToComplete :
+            updatePeriod = timeToComplete
+
+        self.T = timeToComplete
+        ScanJob.__init__(self, updatePeriod, radials, dwellTime, prt, doCycle=True)
+
 
 class Surveillance(ScanJob) :
-    def __init__(self, timeFragment, dwellTime, gridshape, slices=None, prt=None) :
+    def __init__(self, dwellTime, gridshape, slices=None, prt=None) :
         """
-        timeFragment must be a timedelta object from the datetime module.
-        dwellTime and prt must be an int in units of microseconds.
+        dwellTime and prt must be integers in units of microseconds.
         gridshape must be a tuple of ints representing the shape of the
-            entire radar grid.
+            *entire* radar grid.
         slices is a tuple that represents the portion of the grid
-            this surveillance task is responsible for. If None, then
+            this surveillance job is responsible for. If None, then
             assume the entire grid.
         """
         if slices is None :
@@ -58,36 +85,106 @@ class Surveillance(ScanJob) :
         gridshape = [len(range(*aSlice.indices(shape))) for
                      aSlice, shape in zip(slices, gridshape)]
 
-        radialCnt = int(np.prod(gridshape[:-1]))
-        updatePeriod = datetime.timedelta(microseconds=dwellTime * radialCnt)
+        radialCnt = int(np.prod(gridshape[:-1])) / 6
+        updatePeriod = datetime.timedelta(microseconds=dwellTime * radialCnt * 6)
         #print "Surveillance Grid:", gridshape, radialCnt, dwellTime, updatePeriod
         
-        # How many radials can we process within a time fragment?
-        chunkLen = int(((timeFragment.seconds * 1e6) + timeFragment.microseconds) // dwellTime)
+        ## How many radials can we process within a time fragment?
+        #chunkLen = int(((timeFragment.seconds * 1e6) + timeFragment.microseconds) // dwellTime)
 
         #print "ChunkLen:", chunkLen, "   GridShape:", gridshape
 
-        if prt is None :
-            # For now, just assume ten samples per dwell...
-            prt = int(timeFragment.seconds * 1e6 + timeFragment.microseconds) // (10 * radialCnt)
 
         # Get the slice-chunking iterator for this task.
-        iterChunk = ChunkIter(gridshape, chunkLen)
+        iterChunk = SliceIter([0] * len(gridshape), gridshape,
+                              [1, gridshape[1] / 6, gridshape[-1]],
+                              (1, 0, 2))
 
-        # Because of how slice-chunking works, we might not have
-        # gotten exactly the requested timeFragment.  This adjusts
-        # that amount to a much closer figure.
-        chunkCnt = np.prod(iterChunk._chunkCnts)
-        chunkLen = int(np.ceil(radialCnt / chunkCnt))
-        timeFragment = datetime.timedelta(microseconds=chunkLen * dwellTime)
-
-        ScanJob.__init__(self, updatePeriod, timeFragment,
-                            ChunkIter(gridshape, chunkLen),
-                            dwellTime, prt)
+        self.T = updatePeriod / 6
+        ScanJob.__init__(self, updatePeriod, iterChunk,
+                               dwellTime, prt, doCycle=True)
 
 
+class BaseNDIter(object) :
+    def __init__(self, chunkIters, chunkCnts, cycleList=None) :
+        if cycleList is None :
+            cycleList = range(len(chunkIters))
 
-class SplitIter(object) :
+        # So that I know which axes change more than others.
+        self._cycleList = cycleList
+
+        # So that I know how many chunks are in each axes.
+        self._chunkCnts = chunkCnts
+
+        # ChunkIndices for keeping track of when an iterator cycles
+        # Initialize to self._chunkCnts so that the first call to
+        # .next() will force an initialization of self.slices
+        #
+        # Also, make sure you make a copy!
+        self._chunkIndices = self._chunkCnts[:]
+
+        # The slice iterators for each axis (besides the range-gate one)
+        self._chunkIters = chunkIters
+
+        # This member will contain the current slices.
+        self.slices = [None] * len(chunkIters)
+        self._started = False
+
+    def __iter__(self) :
+        return self
+
+    def next(self) :
+        for axisIndex in self._cycleList :
+            self._chunkIndices[axisIndex] += 1
+            self.slices[axisIndex] = self._chunkIters[axisIndex].next()
+
+            if self._chunkIndices[axisIndex] >= self._chunkCnts[axisIndex] :
+
+                # This axis needs cycling.
+                if (axisIndex != self._cycleList[-1] or
+                    not self._started) :
+                    # If we are not trying to wrap the last axis, then carry on!
+                    self._chunkIndices[axisIndex] = 0
+                else :
+                    # This is the last axis, so let's stop the iteration.
+                    raise StopIteration
+            else :
+                # This axis didn't need cycling, so we don't need to worry about
+                # the rest of the axes this time around.
+                break
+
+        self._started = True
+        return self.slices[:]
+
+
+
+
+class SliceIter(BaseNDIter) :
+    """
+    An iterator that generate slices to access chunks of
+    arrays of the same shape.
+    """
+    def __init__(self, starts, stops, steps, cycleList=None) :
+        if cycleList is None :
+            cycleList = range(len(starts))
+
+        div_points = [range(start, stop, step) + [stop + 1] for
+                      start, stop, step in zip(starts, stops, steps)]
+
+
+        # So that I know how many chunks are in each axes.
+        chunkCnts = [len(div) - 1 for div in div_points]
+
+        chunkIters = [cycle(slice(start, stop, 1) for start, stop
+                            in zip(divs[:-1], divs[1:])) for
+                      divs in div_points]
+
+        BaseNDIter.__init__(self, chunkIters, chunkCnts, cycleList)
+
+
+
+
+class SplitIter(BaseNDIter) :
     """
     An iterator that generates slices to access chunks of
     arrays of the same shape.
@@ -154,25 +251,15 @@ class SplitIter(object) :
         otherAxes = range(len(gridshape))
         otherAxes.remove(axis)
 
-        # So that I know which axes change more than others.
-        self._cycleList = [axis] + otherAxes
+        cycleList = [axis] + otherAxes
 
-        # So that I know how many chunks are in each axes.
-        self._chunkCnts = [len(range(*aSlice.indices(size))) for
-                           aSlice, size in zip(slices, gridshape)]
-        self._chunkCnts[axis] = Nsections
+        chunkCnts = [len(range(*aSlice.indices(size))) for
+                     aSlice, size in zip(slices, gridshape)]
+        chunkCnts[axis] = Nsections
 
-        # ChunkIndices for keeping track on when an iterator cycles
-        # Initialize to self._chunkCnts so that the first call to
-        # .next() will force an initialization of self.slices
-        #
-        # Also, make sure you make a copy!
-        self._chunkIndices = self._chunkCnts[:]
+        chunkIters = [None] * len(gridshape)
 
-        # The slice iterators for each axis (besides the range-gate one)
-        self._chunkIters = [None] * len(gridshape)
-
-        for index in range(len(gridshape)) :
+        for index in range(len(gridshape)) :    
             if index in otherAxes :
                 tmp_divPts = range(*slices[index].indices(gridshape[index]))
                 # add another point so that we can iterate all the way through.
@@ -180,39 +267,13 @@ class SplitIter(object) :
             else :
                 tmp_divPts = div_points
 
-            self._chunkIters[index] = cycle(slice(start, stop, slices[axis].step) for start, stop
-                                            in zip(tmp_divPts[:-1], tmp_divPts[1:]))
+            chunkIters[index] = cycle(slice(start, stop, slices[axis].step) for start, stop
+                                      in zip(tmp_divPts[:-1], tmp_divPts[1:]))
 
-        # This member will contain the current slices.
-        self.slices = [None] * len(gridshape)
+        BaseNDIter.__init__(self, chunkIters, chunkCnts, cycleList)
 
-        self._started = False
 
-    def __iter__(self) :
-        return self
 
-    def next(self) :
-        for axisIndex in self._cycleList :
-            self._chunkIndices[axisIndex] += 1
-            self.slices[axisIndex] = self._chunkIters[axisIndex].next()
-
-            if self._chunkIndices[axisIndex] >= self._chunkCnts[axisIndex] :
-
-                # This axis needs cycling.
-                if (axisIndex != self._cycleList[-1] or
-                    not self._started) :
-                    # If we are not trying to wrap the last axis, then carry on!
-                    self._chunkIndices[axisIndex] = 0
-                else :
-                    # This is the last axis, so let's stop the iteration.
-                    raise StopIteration
-            else :
-                # This axis didn't need cycling, so we don't need to worry about
-                # the rest of the axes this time around.
-                break
-
-        self._started = True
-        return self.slices[:]
 
        
 class ChunkIter(SplitIter) :
