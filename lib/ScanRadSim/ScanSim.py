@@ -47,7 +47,7 @@ class Simulator(object) :
 
     def update(self, theTime, theTasks, volume=None) :
         if volume is None :
-            volume = (slice(None),slice(None),slice(None))
+            volume = slice(None)
 
         if theTime >= self.nextItem['scan_time'] :
             # We move onto the next file.
