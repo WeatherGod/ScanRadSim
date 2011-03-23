@@ -33,7 +33,7 @@ class ScanJob(object) :
 
         dwellTime and prt are also timedelta objects
             dwellTime represents how much time it should take to process
-            the radials from a call to radials.next()
+            each radial from a call to radials.next()
 
         radials is any iterator that returns an object that
             can be used to access a part of a numpy array upon
@@ -45,7 +45,8 @@ class ScanJob(object) :
         self.U = updatePeriod
         self.is_running = False
         self.radials = cycle(radials) if doCycle else radials
-        self.T = dwellTime
+        self.dwellTime = dwellTime
+        self.T = None
 
         if prt is None :
             # For now, assume 10 samples per dwell
@@ -58,11 +59,21 @@ class ScanJob(object) :
     def __iter__(self) :
         return self
 
+    def _slicesize(self) :
+        return int(np.prod([len(range(aSlice.start, aSlice.stop, aSlice.step)) for
+                            aSlice in self.currslice[:-1]]))
+
     def next(self) :
         # TODO: Assume a 10% duty cycle for now...
         self.currslice = self.radials.next()
+        #print "In task.next():", self.currslice
+        self.T = self.dwellTime * self._slicesize()
         txTime = self.T / 10
         rxTime = self.T - txTime
+
+        #print "Scan Job:", self, "  T:", self.T, "  rad cnt:", self._slicesize()
+        #print "Slice:", [aSlice.indices(aSlice.stop - aSlice.start) for aSlice in self.currslice],\
+        #      "  T:", self.T, "  rad cnt:", self._slicesize(), " indices:", self.radials._chunkIndices
         return ScanOperation(self.currslice, txTime, rxTime)
 
 class StaticJob(ScanJob) :
@@ -104,14 +115,26 @@ class Surveillance(ScanJob) :
                      aSlice, shape in zip(slices, gridshape)]
 
         # Get the slice-chunking iterator for this task.
+        #print "start:", [0] * len(gridshape), " stop:", gridshape
         iterChunk = SliceIter([0] * len(gridshape), gridshape,
-                              [1, gridshape[1] / 6, gridshape[-1]],
+                              [1, 5, gridshape[-1]],
                               (1, 0, 2))
 
         radialCnt = int(np.prod(gridshape[:-1]))
-        dwellTime = datetime.timedelta(microseconds=dwellTime * radialCnt / len(iterChunk))
-        updatePeriod = dwellTime * len(iterChunk)
+        dwellTime = datetime.timedelta(microseconds=dwellTime)# * radialCnt / len(iterChunk))
+        updatePeriod = dwellTime * radialCnt#len(iterChunk)
+        #print "Dwell:", dwellTime, "  Radials:", radialCnt, "  ChunkCnt:", len(iterChunk)
 
         ScanJob.__init__(self, updatePeriod, iterChunk,
                                dwellTime, prt, doCycle=True)
+
+if __name__ == '__main__' :
+    a = Surveillance(6400, (9, 366, 1000), slices=(slice(None), slice(0, 92, 1), slice(None)))
+
+    print a.radials, len(a.radials)
+
+    
+    for index in range(20) :
+        #print a.radials._chunkIndices, a.radials._chunkCnts
+        b = a.next()
  
