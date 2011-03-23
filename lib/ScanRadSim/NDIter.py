@@ -54,6 +54,7 @@ class BaseNDIter(object) :
                 break
 
         self._started = True
+        #print "In next():", self.slices
         return self.slices[:]
 
 class SliceIter(BaseNDIter) :
@@ -65,12 +66,15 @@ class SliceIter(BaseNDIter) :
         if cycleList is None :
             cycleList = range(len(starts))
 
-        div_points = [range(start, stop, step) + [stop + 1] for
+        div_points = [range(start, stop, step) + [stop] for
                       start, stop, step in zip(starts, stops, steps)]
 
 
         # So that I know how many chunks are in each axes.
         chunkCnts = [len(div) - 1 for div in div_points]
+
+        #for divs in div_points :
+        #    print "Divs:", divs
 
         chunkIters = [cycle(slice(start, stop, 1) for start, stop
                             in zip(divs[:-1], divs[1:])) for
@@ -235,7 +239,7 @@ class ChunkIter(SplitIter) :
 
 if __name__ == '__main__' :
     #a = ChunkIter((40, 5, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
-    a = SplitIter((366,), 4, axis=0)
+    a = SplitIter((9, 366,), 6, axis=1)
 
     print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
     print a.slices, "  |||  ", a._chunkIndices
@@ -243,4 +247,12 @@ if __name__ == '__main__' :
     for index, theSlice in zip(xrange(25), a) :
         print theSlice
 
+
+
+    a = SliceIter((0, 0, 0), (9, 92, 1000), (1, 5, 1000), (1, 0, 2))
+    print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
+    print a.slices, "  |||  ", a._chunkIndices
+
+    for index in range(20) :
+        a.next()
 
