@@ -12,6 +12,9 @@ class TaskScheduler(object) :
         self._active_time = [None] * concurrent_max
         self.jobs = []
 
+        self.max_timeOver = timedelta()
+        self.sum_timeOver = timedelta()
+
     def increment_timer(self, timeElapsed) :
         for index, aTask in enumerate(self.active_tasks) :
             if aTask is not None :
@@ -69,6 +72,9 @@ class TaskScheduler(object) :
                 if actTime >= aTask.T :
                     # The task is finished its fragment!
                     aTask.is_running = False
+                    timeDiff = actTime - aTask.T
+                    self.max_timeOver = max(self.max_timeOver, timeDiff)
+                    self.sum_timeOver += timeDiff
                     self._active_time[index] = None
                     self.active_tasks[index] = None
 
