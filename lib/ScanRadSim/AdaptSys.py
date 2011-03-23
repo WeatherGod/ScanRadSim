@@ -71,7 +71,7 @@ class SimpleSensingSys(AdaptSenseSys) :
         
         jobsToAdd = [StaticJob(timedelta(seconds=40),
                                ChunkIter(gridshape, width, radials),
-                               dwellTime=timedelta(microseconds=64000 * width),
+                               dwellTime=timedelta(microseconds=64000),
                                prt=timedelta(microseconds=800)) for
                      radials, cnt, width in zip(allRadials, radCnts, widths)]
 
