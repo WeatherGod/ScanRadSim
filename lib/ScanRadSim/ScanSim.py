@@ -28,6 +28,7 @@ class Simulator(object) :
         self.radialAge = np.empty(self.currItem['vals'].shape[:-1],
                                   dtype=datetime)
         self.radialAge.fill(self.currItem['scan_time'])
+        self.updateCnt = np.zeros(self.currItem['vals'].shape[:-1], dtype=np.int)
 
         self._set_slope()
 
@@ -72,6 +73,7 @@ class Simulator(object) :
                                           self.currItem['vals'][volume][taskRadials])
             # Reset the age of these radials.
             self.radialAge[volume[:-1]][taskRadials[:-1]] = theTime
+            self.updateCnt[volume[:-1]][taskRadials[:-1]] += 1
 
         return True
 
