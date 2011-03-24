@@ -94,7 +94,7 @@ class StaticJob(ScanJob) :
             prt = dwellTime / 10
 
         ScanJob.__init__(self, radials, doCycle)
-        self.U = updatePeriod
+        self.U = updatePeriod / len(radials)
         self.prt = prt
         self.dwellTime = dwellTime
         self.T = datetime.timedelta()
@@ -244,7 +244,7 @@ class VCP(ScanJob) :
             updatePeriod = timeToComplete
 
         ScanJob.__init__(self, iterChunk, doCycle)
-        self.U = updatePeriod
+        self.U = updatePeriod# / int(np.prod(chunkCnts))
         self.T = datetime.timedelta()
 
     def _get_dwelltime(self) :
@@ -298,7 +298,7 @@ class Surveillance(ScanJob) :
         #print "Dwell:", dwellTime, "  Radials:", radialCnt, "  ChunkCnt:", len(iterChunk)
 
         ScanJob.__init__(self, iterChunk, doCycle)
-        self.U = updatePeriod
+        self.U = updatePeriod# / len(iterChunk)
         self.T = datetime.timedelta()
         self.prt = prt
         self.dwellTime = dwellTime
@@ -307,8 +307,8 @@ class Surveillance(ScanJob) :
 
 
 if __name__ == '__main__' :
-    gridshape = (9, 366, 1000)
-    vol = (slice(1, 3), slice(0, 92, 1), slice(None))
+    gridshape = (9, 92, 1000)
+    vol = (slice(0, 9), slice(0, 92, 1), slice(None))
 
     print "Surveillance Job"
     print "-----------------"
@@ -323,11 +323,11 @@ if __name__ == '__main__' :
     print "\n"
     print "VCP 21 Job"
     print "----------"
-    a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=1)
+    a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=0)
 
     print a.radials, len(a.radials), a.U
 
-    for index, b in zip(range(40), a) :
+    for b in a :
         print b.T, b.currslice
 
     print "\nVCP 21 Job"
@@ -348,4 +348,3 @@ if __name__ == '__main__' :
 
     for index, b in zip(range(40), a) :
         print b.T, b.currslice
-
