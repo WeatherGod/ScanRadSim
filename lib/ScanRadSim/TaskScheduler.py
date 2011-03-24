@@ -1,6 +1,11 @@
 import numpy as np
 from datetime import timedelta
 
+def _to_usecs(somedelta) :
+    return (86400000000 * somedelta.days) + (60000000 * somedelta.seconds) + somedelta.microseconds
+
+def _to_secs(somedelta) :
+    return 1e-6 * _to_usecs(somedelta)
 
 class TaskScheduler(object) :
     """
@@ -11,11 +16,61 @@ class TaskScheduler(object) :
         self.active_tasks = [None] * concurrent_max
         self._active_time = [None] * concurrent_max
         self.jobs = []
+        self._job_lifetimes = []
 
+        # This is just used for some internal book-keeping.
+        # Do not depend on this as a model timestamp.
+        self._schedlifetime = timedelta()
+
+        # These are here just to help determine how efficiently
+        # we are incrementing the schedule's timer.
         self.max_timeOver = timedelta()
         self.sum_timeOver = timedelta()
 
+    # NOTE: These next few functions are temporarially assuming the existance
+    #       of a member variable called "self.surveil_job".
+    def occupancy(self) :
+        return sum([(_to_usecs(aJob.T * len(aJob._origradials)) /
+                     float(_to_usecs(aJob.true_update_period(jobtime)))) for
+                    aJob, jobtime in zip(self.jobs + [self.surveil_job],
+                                         self._job_lifetimes + [self._schedlifetime]) if
+                    _to_usecs(aJob.T) != 0])
+
+    def acquisition(self) :
+        U_times = [aJob.true_update_period(jobtime) for aJob, jobtime in
+                   zip(self.jobs + [self.surveil_job],
+                       self._job_lifetimes + [self._schedlifetime])]
+
+        try :
+            max_u = _to_secs(max([prd for prd in U_times if prd != timedelta.max]))
+            return sum([max_u * _to_secs(aJob.T * len(aJob._origradials)) /
+                        _to_secs(prd) for aJob, prd in
+                        zip(self.jobs + [self.surveil_job], U_times) if
+                        prd != timedelta.max])
+        except ValueError :
+            return np.nan
+
+    def improve_factor(self, base_update_period) :
+        """
+        Calculate the improvement factor for the scheduling algorithm compared to
+        a scan performed by a single beam in a non-adaptive manner (i.e., conventional
+        WSR-88D scanning).
+        In other words, the improvement factor is the average number of scans divided
+        by the number of scans that would have been performed by a single radar beam.
+        """
+        if len(self.jobs) > 0 :
+            return (sum([1.0 / _to_secs(aJob.true_update_period(joblife)) for
+                         aJob, joblife in zip(self.jobs, self._job_lifetimes)]) *
+                    _to_secs(base_update_period) / len(self.jobs))
+        else :
+            return np.nan
+
     def increment_timer(self, timeElapsed) :
+        self._schedlifetime += timeElapsed
+
+        for index in range(len(self._job_lifetimes)) :
+            self._job_lifetimes[index] += timeElapsed
+
         for index, aTask in enumerate(self.active_tasks) :
             if aTask is not None :
                 self._active_time[index] += timeElapsed
@@ -31,6 +86,8 @@ class TaskScheduler(object) :
 
     def add_jobs(self, jobs) :
         self.jobs.extend(jobs)
+        self._job_lifetimes.extend([timedelta() for
+                                    index in range(len(jobs))])
 
     def rm_jobs(self, jobs) :
         # Slate these jobs for removal.
@@ -43,9 +100,14 @@ class TaskScheduler(object) :
         #                     list and when the job is done in the
         #                     active list, it will finally be deleted.
         findargs = [self.jobs.index(aJob) for aJob in jobs]
+
+        # Need to go through these indices in reverse order
+        # as we delete items from a list.  This way, the
+        # subsequent index values are still valid.
         args = np.argsort(findargs)[::-1]
         for anItem in args :
             del self.jobs[findargs[anItem]]
+            del self._job_lifetimes[findargs[anItem]]
 
         return findargs, args
 
