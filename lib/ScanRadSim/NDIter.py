@@ -254,5 +254,5 @@ if __name__ == '__main__' :
     print a.slices, "  |||  ", a._chunkIndices
 
     for index in range(20) :
-        a.next()
+        print a.next()
 
