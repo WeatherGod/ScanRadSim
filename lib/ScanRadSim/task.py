@@ -104,7 +104,7 @@ class StaticJob(ScanJob) :
             prt = dwellTime / 10
 
         ScanJob.__init__(self, radials, doCycle)
-        self.U = updatePeriod / len(radials)
+        self.U = updatePeriod
         self.prt = prt
         self.dwellTime = dwellTime
         self.T = datetime.timedelta()
@@ -254,7 +254,7 @@ class VCP(ScanJob) :
             updatePeriod = timeToComplete
 
         ScanJob.__init__(self, iterChunk, doCycle)
-        self.U = updatePeriod# / int(np.prod(chunkCnts))
+        self.U = updatePeriod
         self.T = datetime.timedelta()
 
     def _get_dwelltime(self) :
@@ -308,7 +308,7 @@ class Surveillance(ScanJob) :
         #print "Dwell:", dwellTime, "  Radials:", radialCnt, "  ChunkCnt:", len(iterChunk)
 
         ScanJob.__init__(self, iterChunk, doCycle)
-        self.U = updatePeriod# / len(iterChunk)
+        self.U = updatePeriod
         self.T = datetime.timedelta()
         self.prt = prt
         self.dwellTime = dwellTime
