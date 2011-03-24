@@ -42,6 +42,7 @@ class ScanJob(object) :
         self._origradials = radials
         self.radials = cycle(radials) if doCycle else radials
         self.currslice = None
+        self._nextcallCnt = 0
 
     def __iter__(self) :
         return self
@@ -57,7 +58,13 @@ class ScanJob(object) :
     def _timeToComplete(self) :
         return self.dwellTime * self._slicesize()
 
+    def _loopcnt(self) :
+        return int(self._nextcallCnt // len(self._origradials))
+
+    loopcnt = property(_loopcnt, None, None, "Find out how many cycles the radials iterator has made")
+
     def next(self) :
+        self._nextcallCnt += 1
         # TODO: Assume a 10% duty cycle for now...
         #print self, self._origradials, self._origradials._chunkIndices, self._origradials._chunkCnts
         self.currslice = self.radials.next()
