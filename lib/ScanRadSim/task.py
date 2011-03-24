@@ -66,6 +66,29 @@ class ScanJob(object) :
 
     loopcnt = property(_loopcnt, None, None, "Find out how many cycles the radials iterator has made")
 
+    def _loopcnt_frac(self) :
+        return self._nextcallCnt / float(len(self._origradials))
+
+    loopcnt_frac = property(_loopcnt_frac, None, None,
+                            "Find out how many cycles (and the fractional amount of the current loop) the radials iterator has made")
+
+    def true_update_period(self, elapsedTime) :
+        """
+        Figure out what the actual update period has been for this scan job,
+        given that the amound of time that has elapsed is given.
+        """
+        # The fractions module is needed to produce a more accurate value for the
+        # update period.  In the python 2.x series, float division of a timedelta
+        # object is not allowed.
+        # The following is only valid for python 2.6.
+        from fractions import Fraction
+        loop_frac = Fraction.from_float(self.loopcnt_frac).limit_denominator(100)  # 100 should be enough for everybody!
+        if loop_frac.numerator != 0 :
+            return (elapsedTime * loop_frac.denominator) / loop_frac.numerator
+        else :
+            return datetime.timedelta.max
+
+
     def next(self) :
         self._nextcallCnt += 1
         # TODO: Assume a 10% duty cycle for now...
