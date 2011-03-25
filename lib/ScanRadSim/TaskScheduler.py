@@ -17,6 +17,7 @@ class TaskScheduler(object) :
         self._active_time = [None] * concurrent_max
         self.jobs = []
         self._job_lifetimes = []
+        self._concurrent_max = concurrent_max
 
         # This is just used for some internal book-keeping.
         # Do not depend on this as a model timestamp.
@@ -34,7 +35,7 @@ class TaskScheduler(object) :
                      float(_to_usecs(aJob.true_update_period(jobtime)))) for
                     aJob, jobtime in zip(self.jobs + [self.surveil_job],
                                          self._job_lifetimes + [self._schedlifetime]) if
-                    _to_usecs(aJob.T) != 0])
+                    _to_usecs(aJob.T) != 0]) / self._concurrent_max
 
     def acquisition(self) :
         U_times = [aJob.true_update_period(jobtime) for aJob, jobtime in
