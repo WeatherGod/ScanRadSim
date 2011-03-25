@@ -65,9 +65,8 @@ class ScanJob(object) :
 
     def _slicesize(self) :
         if self.currslice is not None :
-            #print self.currslice
             try :
-                return int(np.prod([len(range(aSlice.start, aSlice.stop, aSlice.step)) for
+                return int(np.prod([len(range(aSlice.start, aSlice.stop)[::aSlice.step]) for
                                 aSlice in self.currslice[:-1]]))
             except :
                 # This might be wrong...
