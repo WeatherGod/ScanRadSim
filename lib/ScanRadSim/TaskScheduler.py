@@ -2,7 +2,7 @@ import numpy as np
 from datetime import timedelta
 
 def _to_usecs(somedelta) :
-    return (86400000000 * somedelta.days) + (60000000 * somedelta.seconds) + somedelta.microseconds
+    return (86400000000 * somedelta.days) + (1000000 * somedelta.seconds) + somedelta.microseconds
 
 def _to_secs(somedelta) :
     return 1e-6 * _to_usecs(somedelta)
