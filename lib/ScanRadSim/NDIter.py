@@ -73,12 +73,9 @@ class SliceIter(BaseNDIter) :
         # So that I know how many chunks are in each axes.
         chunkCnts = [len(div) - 1 for div in div_points]
 
-        #for divs in div_points :
-        #    print "Divs:", divs
-
-        chunkIters = [cycle(slice(start, stop, 1) for start, stop
-                            in zip(divs[:-1], divs[1:])) for
-                      divs in div_points]
+        chunkIters = [cycle([slice(start, stop, np.sign(step)) for start, stop
+                             in zip(divs[:-1], divs[1:])]) for
+                      divs, step in zip(div_points, steps)]
 
         BaseNDIter.__init__(self, chunkIters, chunkCnts, cycleList)
 
@@ -128,10 +125,12 @@ class SplitIter(BaseNDIter) :
         all other axes will be iterated over, one-by-one.
         """
         if slices is None :
-            slices = [slice(0, size, 1) for size in gridshape]
+            slices = [slice(None) for size in gridshape]
+
+        indices = [aSlice.indices(shape) for aSlice, shape in zip(slices, gridshape)]
 
         #print slices, axis, gridshape
-        Ntotal = len(range(*slices[axis].indices(gridshape[axis])))
+        Ntotal = len(range(*indices[axis]))
 
         try:
             Nsections = len(indices_or_sections) + 1
@@ -147,29 +146,33 @@ class SplitIter(BaseNDIter) :
                             ([Neach_section+1] * extras) + \
                             ([Neach_section] * (Nsections-extras))
 
-            div_points = np.cumsum(section_sizes) + slices[axis].start
+            div_points = np.cumsum(section_sizes)
+            if np.sign(indices[axis][2]) >= 0 :
+                div_points += indices[axis][0]
+            else :
+                div_points += indices[axis][1]
+                div_points = div_points[::-1]
 
         otherAxes = range(len(gridshape))
         otherAxes.remove(axis)
 
         cycleList = [axis] + otherAxes
 
-        chunkCnts = [len(range(*aSlice.indices(size))) for
-                     aSlice, size in zip(slices, gridshape)]
+        chunkCnts = [len(range(*indx)) for indx in indices]
         chunkCnts[axis] = Nsections
 
         chunkIters = [None] * len(gridshape)
 
         for index in range(len(gridshape)) :    
             if index in otherAxes :
-                tmp_divPts = range(*slices[index].indices(gridshape[index]))
+                tmp_divPts = range(*indices[index])
                 # add another point so that we can iterate all the way through.
-                tmp_divPts += [tmp_divPts[-1] + 1]
+                tmp_divPts += [indices[index][1]]
             else :
                 tmp_divPts = div_points
 
-            chunkIters[index] = cycle(slice(start, stop, slices[axis].step) for start, stop
-                                      in zip(tmp_divPts[:-1], tmp_divPts[1:]))
+            chunkIters[index] = cycle([slice(start, stop, indices[index][2]) for
+                                       start, stop in zip(tmp_divPts[:-1], tmp_divPts[1:])])
 
         BaseNDIter.__init__(self, chunkIters, chunkCnts, cycleList)
 
@@ -196,9 +199,12 @@ class ChunkIter(SplitIter) :
             raise ValueError("chunksize must be greater than zero")
 
         if slices is None :
-            slices = [slice(0, size, 1) for size in gridshape]
+            slices = [slice(None) for size in gridshape]
 
         views = [aSlice.indices(size) for aSlice, size in zip(slices, gridshape)]
+
+        # Rebuild the slices to make sure every part is defined.
+        #slices = [slice(*aView) for aView in views]
 
         # Find out how many chunksize sections can fit in each axis,
         # and how many remaining elements in the remaining mis-fit section.
@@ -228,31 +234,39 @@ class ChunkIter(SplitIter) :
             chunkCnt = Nfitsects[axis] + 1
 
         SplitIter.__init__(self, gridshape[:-1], chunkCnt, axis,
-                           [slice(*aView) for aView in views[:-1]])
+                           [aSlice for aSlice in slices[:-1]])
 
         # Add a final element onto this tuple representing the
         # desired slice for the final dimension.
-        self.slices += [slice(*views[-1])]
+        self.slices += [slices[-1]]
 
 
 
 
 if __name__ == '__main__' :
-    #a = ChunkIter((40, 5, 1000), 20, (slice(0, 40, None), slice(0, 100, None), slice(0, 1000, None)))
-    a = SplitIter((9, 366,), 6, axis=1)
+
+    #--------------------------------------------------------
+    a = ChunkIter((40, 5, 1000), 20, (slice(39, 0, -1), slice(None, 0, -1), slice(0, 1000, None)))
 
     print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
+    print a.slices, "  |||  ", a._chunkIndices
+
+    for index, theSlice in zip(range(25), a) :
+        print theSlice
+    #-------------------------------------------------------
+    a = SplitIter((9, 366,), 6, axis=1)
+
+    print "\nCycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
     print a.slices, "  |||  ", a._chunkIndices
 
     for index, theSlice in zip(xrange(25), a) :
         print theSlice
 
+    #-------------------------------------------------------
 
-
-    a = SliceIter((0, 0, 0), (9, 92, 1000), (1, 5, 1000), (1, 0, 2))
-    print "Cycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
+    a = SliceIter((0, 91, 0), (9, 2, 1000), (1, -5, 1000), (1, 0, 2))
+    print "\nCycle List:", a._cycleList, "  ChunkCnts:", a._chunkCnts, len(a)
     print a.slices, "  |||  ", a._chunkIndices
 
     for index in range(20) :
         print a.next()
-
