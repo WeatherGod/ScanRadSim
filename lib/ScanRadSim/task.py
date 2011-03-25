@@ -4,8 +4,17 @@ import numpy as np
 
 from NDIter import SliceIter, BaseNDIter
 
+def _slicesize(theSlice) :
+    try :
+        return int(np.prod([len(range(aSlice.start, aSlice.stop,
+                                      1 if aSlice.step is None else aSlice.step)) for
+                            aSlice in theSlice]))
+    except :
+        # This might be wrong...
+        return len(theSlice)
+
 class ScanOperation(object) :
-    def __init__(self, radSlice, tx_time, rx_time, wait_time=None) :
+    def __init__(self, job, radSlice, tx_time, rx_time, wait_time=None) :
         """
         Times for the three parts of any scan operation using timedelta objects.
         tx == transmit
@@ -13,6 +22,7 @@ class ScanOperation(object) :
 
         A Scan Operation can not be pre-empted during the transmit and receive modes.
         """
+        self.job = job
         self.tx_time = tx_time
         self.rx_time = rx_time
         self.wait_time = wait_time
@@ -24,6 +34,8 @@ class ScanOperation(object) :
         if wait_time is not None :
             self.T += wait_time
 
+    def _slicesize(self) :
+        return _slicesize(self.currslice[:-1])
 
 class ScanJob(object) :
     def __init__(self, radials, doCycle=False) :
@@ -40,10 +52,11 @@ class ScanJob(object) :
         # a cycle object.
         self._origradials = radials
         self.radials = cycle(radials) if doCycle else radials
-        self.currslice = None
-        self.currtask = None
+        #self.currslice = None
+        #self.currtask = None
         self._nextcallCnt = 0
 
+    """
     def _set_running(self, is_run) :
         if self.currtask is not None :
             self.currtask.is_running = is_run
@@ -59,23 +72,12 @@ class ScanJob(object) :
             return False
 
     is_running = property(_get_running, _set_running, None, "The status of the scan-job's current task")
-
+    """
     def __iter__(self) :
         return self
 
-    def _slicesize(self) :
-        if self.currslice is not None :
-            try :
-                return int(np.prod([len(range(aSlice.start, aSlice.stop)[::aSlice.step]) for
-                                aSlice in self.currslice[:-1]]))
-            except :
-                # This might be wrong...
-                return len(self.currslice)
-        else :
-            return 0
-
-    def _timeToComplete(self) :
-        return self.dwellTime * self._slicesize()
+    def _timeToComplete(self, thisSlice) :
+        return self.dwellTime * _slicesize(thisSlice) 
 
     def _loopcnt(self) :
         chunkCnt = len(self._origradials)
@@ -118,16 +120,16 @@ class ScanJob(object) :
         self._nextcallCnt += 1
         # TODO: Assume a 10% duty cycle for now...
         #print self, self._origradials, self._origradials._chunkIndices, self._origradials._chunkCnts
-        self.currslice = self.radials.next()
-        self.T = self._timeToComplete()
-        txTime = self.T / 10
-        rxTime = self.T - txTime
+        nextslice = self.radials.next()
+        T = self._timeToComplete(nextslice)
+        txTime = T / 10
+        rxTime = T - txTime
 
         #print "Scan Job:", self, "  T:", self.T, "  rad cnt:", self._slicesize()
         #print "Slice:", [aSlice.indices(aSlice.stop - aSlice.start) for aSlice in self.currslice],\
         #      "  T:", self.T, "  rad cnt:", self._slicesize(), " indices:", self.radials._chunkIndices
-        self.currtask = ScanOperation(self.currslice, txTime, rxTime)
-        return self.currtask
+        return ScanOperation(self, nextslice, txTime, rxTime)
+
 
 class StaticJob(ScanJob) :
     def __init__(self, updatePeriod, radials, dwellTime, prt=None, doCycle=True) :
@@ -305,7 +307,7 @@ class VCP(ScanJob) :
     def _get_dwelltime(self) :
         # Based on the current elevation angle,
         # return the dwell time.
-        if self.currslice is not None :
+        if self._origradials._started :
             return self._dwellTimes[self._origradials._chunkIndices[0]]
         else :
             return datetime.timedelta()
@@ -315,7 +317,7 @@ class VCP(ScanJob) :
     def _get_prt(self) :
         # Based on the current elevation angle,
         # return the prt
-        if self.currslice is not None :
+        if self._origradials._started :
             return self._prts[self._origradials._chunkIndices[0]]
         else :
             return datetime.timedelta()
@@ -396,7 +398,7 @@ if __name__ == '__main__' :
 
     print "\nVCP 21 Job"
     print "----------"
-    vol = (slice(1, 3), slice(92, 184, 1), slice(None))
+    vol = (slice(0, 3), slice(20, 184, 1), slice(None))
     a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=0)
 
     print a.radials, len(a.radials), a.U
