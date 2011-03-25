@@ -3,6 +3,17 @@ from NDIter import ChunkIter
 import numpy as np
 from datetime import timedelta, datetime
 
+_sensing_sys = {}
+def register_sensing(sysClass) :
+    if sysClass.name not in _sensing_sys :
+        _sensing_sys[sysClass.name] = sysClass
+    else :
+        raise ValueError("The %s is already registered by %s" % (sysClass.name, _sensing_sys[sysClass.name].__class__))
+
+def adapt(name, volume=None) :
+    return _sensing_sys[name](volume)
+
+
 
 class AdaptSenseSys(object) :
     """
@@ -16,14 +27,15 @@ class AdaptSenseSys(object) :
 
     def __call__(self, radData) :
         raise NotImplementedError("This function has to be implemented by the derived AdaptSenseSys class!")
-    
 
 class NullSensingSys(AdaptSenseSys) :
     """
     Does not produce any adaptive scaning jobs.
     """
+    name = "Null"
     def __call__(self, radData) :
         return [], []
+register_sensing(NullSensingSys)
 
 
 from scipy.ndimage.measurements import find_objects, label
@@ -31,6 +43,7 @@ class SimpleSensingSys(AdaptSenseSys) :
     """
     Just scan for every contiguous +35dBz region.
     """
+    name = "Simple"
     def __init__(self, volume=None) :
         self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
@@ -77,4 +90,5 @@ class SimpleSensingSys(AdaptSenseSys) :
 
         self.prevJobs = jobsToAdd
         return jobsToAdd, jobsToRemove
+register_sensing(SimpleSensingSys)
 
