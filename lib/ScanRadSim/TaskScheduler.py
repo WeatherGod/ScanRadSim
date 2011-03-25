@@ -112,16 +112,20 @@ class TaskScheduler(object) :
 
         return findargs, args
 
-    def next_jobs(self) :
+    def next_jobs(self, auto_activate=False) :
         raise NotImplementedError("next_jobs() needs to be implemented by the derived class!")
 
-    def add_active(self, theJob) :
+    def add_active(self, theJob, auto_activate=False) :
         for index, activeTask in enumerate(self.active_tasks) :
             if activeTask is None :
                 theTask = theJob.next()
                 # This gets changed to True by the scan simulator,
                 # because that is when the scan is actually active.
-                theTask.is_running = False
+                # Or auto_activate can be set to True.
+                # Note that ScanSim checks to see if the task is
+                # already running before using it, and will skip
+                # it if it is running already.
+                theTask.is_running = auto_activate
                 self.active_tasks[index] = theTask
                 self._active_time[index] = timedelta()
                 return
