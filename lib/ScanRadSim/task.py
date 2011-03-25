@@ -35,14 +35,30 @@ class ScanJob(object) :
         doCycle will indicate whether or not to cycle through
         the radials.  Default is False.
         """
-        self.is_running = False
         # This is so I can still access the info in radials,
         # regardless of whether or not it gets wrapped by
         # a cycle object.
         self._origradials = radials
         self.radials = cycle(radials) if doCycle else radials
         self.currslice = None
+        self.currtask = None
         self._nextcallCnt = 0
+
+    def _set_running(self, is_run) :
+        if self.currtask is not None :
+            self.currtask.is_running = is_run
+        elif is_run :
+            # Only worry about it if trying to set it to True.
+            raise ValueError("This scanjob does not have an active task yet!")
+
+    def _get_running(self) :
+        if self.currtask is not None :
+            return self.currtask.is_running
+        else :
+            # If there is no current task, then it isn't running, right?
+            return False
+
+    is_running = property(_get_running, _set_running, None, "The status of the scan-job's current task")
 
     def __iter__(self) :
         return self
@@ -51,9 +67,10 @@ class ScanJob(object) :
         if self.currslice is not None :
             #print self.currslice
             try :
-                return int(np.prod([len(range(aSlice.start, aSlice.stop)) for
+                return int(np.prod([len(range(aSlice.start, aSlice.stop, aSlice.step)) for
                                 aSlice in self.currslice[:-1]]))
             except :
+                # This might be wrong...
                 return len(self.currslice)
         else :
             return 0
@@ -62,12 +79,20 @@ class ScanJob(object) :
         return self.dwellTime * self._slicesize()
 
     def _loopcnt(self) :
-        return int(self._nextcallCnt // len(self._origradials))
+        chunkCnt = len(self._origradials)
+        if chunkCnt != 0 :
+            return int(self._nextcallCnt // chunkCnt)
+        else :
+            return 0
 
     loopcnt = property(_loopcnt, None, None, "Find out how many cycles the radials iterator has made")
 
     def _loopcnt_frac(self) :
-        return self._nextcallCnt / float(len(self._origradials))
+        chunkCnt = len(self._origradials)
+        if chunkCnt != 0 :
+            return self._nextcallCnt / float(chunkCnt)
+        else :
+            return 0.0
 
     loopcnt_frac = property(_loopcnt_frac, None, None,
                             "Find out how many cycles (and the fractional amount of the current loop) the radials iterator has made")
@@ -83,6 +108,7 @@ class ScanJob(object) :
         # The following is only valid for python 2.6.
         from fractions import Fraction
         loop_frac = Fraction.from_float(self.loopcnt_frac).limit_denominator(100)  # 100 should be enough for everybody!
+        #print self.loopcnt_frac, loop_frac
         if loop_frac.numerator != 0 :
             return (elapsedTime * loop_frac.denominator) / loop_frac.numerator
         else :
@@ -101,26 +127,23 @@ class ScanJob(object) :
         #print "Scan Job:", self, "  T:", self.T, "  rad cnt:", self._slicesize()
         #print "Slice:", [aSlice.indices(aSlice.stop - aSlice.start) for aSlice in self.currslice],\
         #      "  T:", self.T, "  rad cnt:", self._slicesize(), " indices:", self.radials._chunkIndices
-        return ScanOperation(self.currslice, txTime, rxTime)
+        self.currtask = ScanOperation(self.currslice, txTime, rxTime)
+        return self.currtask
 
 class StaticJob(ScanJob) :
     def __init__(self, updatePeriod, radials, dwellTime, prt=None, doCycle=True) :
         """
         updatePeriod must be a timedelta from datetime module and represents the
-            period of time between calls to next() from the radials iterator.
+            period of time between cycles of the radials iterator.
         dwellTime and prt are also timedelta objects
-            dwellTime is the time it takes to process the radials from a call
-            to radials.next()
+            dwellTime is the time it takes to process *a* radial and is assumed
+            to be constant throughout the scan job.
         radials will be any iterator that returns an item that can be used to
             access a part or sector of a numpy array upon a call to next()
-
-        This class is different from ScanJob in that the updatePeriod
-            is adjusted upward in case the time to complete the scan
-            is greater than the given updatePeriod.
         """
-        timeToComplete = len(radials) * dwellTime
-        if updatePeriod < timeToComplete :
-            updatePeriod = timeToComplete
+        #timeToComplete = len(radials) * dwellTime
+        #if updatePeriod < timeToComplete :
+        #    updatePeriod = timeToComplete
 
         if prt is None :
             # For now, assume 10 pulses
@@ -221,12 +244,12 @@ class VCP(ScanJob) :
             the time it takes to cover "gridshape".
         """
         if slices is None :
-            slices = [slice(0, shape, 1) for shape in gridshape]
+            slices = [slice(None) for shape in gridshape]
 
         chunkSize = 5
 
         dwellTimes_elevs = _wsr_dwelltime(vcp)
-        prts_elevs = _wsr_dwelltime(vcp)
+        prts_elevs = _wsr_prts(vcp)
 
         # This must be done before remaking gridshape because I
         # need to know how wide the original grid was.
@@ -270,8 +293,8 @@ class VCP(ScanJob) :
         iterChunk = BaseNDIter(chunkIters, chunkCnts, (1, 0, 2))
 
         timeToComplete = datetime.timedelta()
-        for elev_sliced in elevs :
-            timeToComplete += (dwellTimes_elevs[elev_sliced + elevOffset] * gridshape[1])
+        for dwell in self._dwellTimes :
+            timeToComplete += (dwell * gridshape[1])
 
         if timeToComplete > updatePeriod :
             updatePeriod = timeToComplete
