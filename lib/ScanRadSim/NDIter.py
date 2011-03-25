@@ -66,6 +66,9 @@ class SliceIter(BaseNDIter) :
         if cycleList is None :
             cycleList = range(len(starts))
 
+        # Replace any None steps with 1.
+        steps = [aStep if aStep is not None else 1 for aStep in steps]
+
         div_points = [range(start, stop, step) + [stop] for
                       start, stop, step in zip(starts, stops, steps)]
 
@@ -73,8 +76,8 @@ class SliceIter(BaseNDIter) :
         # So that I know how many chunks are in each axes.
         chunkCnts = [len(div) - 1 for div in div_points]
 
-        chunkIters = [cycle([slice(start, stop, np.sign(step)) for start, stop
-                             in zip(divs[:-1], divs[1:])]) for
+        chunkIters = [cycle([slice(start, stop, np.sign(step)) for
+                             start, stop in zip(divs[:-1], divs[1:])]) for
                       divs, step in zip(div_points, steps)]
 
         BaseNDIter.__init__(self, chunkIters, chunkCnts, cycleList)
