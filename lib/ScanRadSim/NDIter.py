@@ -3,9 +3,11 @@ import numpy as np
 
 
 class BaseNDIter(object) :
-    def __init__(self, chunkIters, chunkCnts, cycleList=None) :
+    def __init__(self, chunkIters, chunkCnts, cycleList=None, doCycle=False) :
         if cycleList is None :
             cycleList = range(len(chunkIters))
+
+        self._doCycle = doCycle
 
         # So that I know which axes change more than others.
         self._cycleList = cycleList
@@ -41,9 +43,11 @@ class BaseNDIter(object) :
             if self._chunkIndices[axisIndex] >= self._chunkCnts[axisIndex] :
 
                 # This axis needs cycling.
-                if (axisIndex != self._cycleList[-1] or
-                    not self._started) :
+                if axisIndex != self._cycleList[-1] :
                     # If we are not trying to wrap the last axis, then carry on!
+                    self._chunkIndices[axisIndex] = 0
+                elif not self._started or self._doCycle :
+                    self._started = True
                     self._chunkIndices[axisIndex] = 0
                 else :
                     # This is the last axis, so let's stop the iteration.
@@ -53,7 +57,6 @@ class BaseNDIter(object) :
                 # the rest of the axes this time around.
                 break
 
-        self._started = True
         #print "In next():", self.slices
         return self.slices[:]
 
