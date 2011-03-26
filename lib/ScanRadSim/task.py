@@ -1,4 +1,4 @@
-from itertools import cycle
+from itertools import cycle, tee
 import datetime
 import numpy as np
 
@@ -51,7 +51,9 @@ class ScanJob(object) :
         # regardless of whether or not it gets wrapped by
         # a cycle object.
         self._origradials = radials
-        self.radials = cycle(radials) if doCycle else radials
+        self._startingPoint, self.radials = tee(radials, 2)
+        if doCycle :
+            self.radials = cycle(self.radials)
         #self.currslice = None
         #self.currtask = None
         self._nextcallCnt = 0
@@ -73,11 +75,26 @@ class ScanJob(object) :
 
     is_running = property(_get_running, _set_running, None, "The status of the scan-job's current task")
     """
-    def __iter__(self) :
-        return self
+
+    def _timeForJob(self) :
+        """
+        Default method of determining how much time the job takes.
+        Will not work for all radials iterators, so any special situations
+        must over-ride this function.
+
+        For example, any radials iterator derived from BaseNDIter will 
+        have issues because running this function will cause the iterator's
+        internal mechanisms to move forward.  Some other functions may depend
+        on these mechanisms and will be mislead, in particular the VCP class.
+        """
+        tempIter, = tee(self._startingPoint, 1)
+        timeToComplete = datetime.timedelta(0)
+        for aSlice in tempIter :
+            timeToComplete += self._timeToComplete(aSlice[:-1])
+        return timeToComplete
 
     def _timeToComplete(self, thisSlice) :
-        return self.dwellTime * _slicesize(thisSlice) 
+        return self.dwellTime * _slicesize(thisSlice)
 
     def _loopcnt(self) :
         chunkCnt = len(self._origradials)
@@ -115,13 +132,16 @@ class ScanJob(object) :
         else :
             return datetime.timedelta.max
 
+    def __iter__(self) :
+        return self
 
     def next(self) :
         self._nextcallCnt += 1
         # TODO: Assume a 10% duty cycle for now...
         #print self, self._origradials, self._origradials._chunkIndices, self._origradials._chunkCnts
         nextslice = self.radials.next()
-        T = self._timeToComplete(nextslice)
+        T = self._timeToComplete(nextslice[:-1])
+        #print "Time to complete Task:", T
         txTime = T / 10
         rxTime = T - txTime
 
@@ -142,20 +162,17 @@ class StaticJob(ScanJob) :
         radials will be any iterator that returns an item that can be used to
             access a part or sector of a numpy array upon a call to next()
         """
-        #timeToComplete = len(radials) * dwellTime
-        #if updatePeriod < timeToComplete :
-        #    updatePeriod = timeToComplete
-
         if prt is None :
             # For now, assume 10 pulses
             prt = dwellTime / 10
 
         ScanJob.__init__(self, radials, doCycle)
-        self.U = updatePeriod
-        self.prt = prt
+
         self.dwellTime = dwellTime
-        self.T = datetime.timedelta()
-        
+        self.prt = prt
+        self.T = self._timeForJob()
+        self.U = max(updatePeriod, self.T)
+
 
 WSR_88D_PRT =  {1:  datetime.timedelta(microseconds=int(round(1e6 / 322))),
                 2:  datetime.timedelta(microseconds=int(round(1e6 / 446))),
@@ -265,8 +282,8 @@ class VCP(ScanJob) :
         cutlist = range(*slices[0].indices(gridshape[0]))
 
         # Remaking gridshape so that the slices and shapes agree.                
-        gridshape = [len(range(*aSlice.indices(shape))) for
-                     aSlice, shape in zip(slices, gridshape)]
+        self._gridshape = [len(range(*aSlice.indices(shape))) for
+                           aSlice, shape in zip(slices, gridshape)]
 
         # The elevation indices in slice coordinate system,
         # (which is relative to the grid coordinate system by slice.start,
@@ -281,28 +298,27 @@ class VCP(ScanJob) :
 
         #print slices[1], gridshape[1]
         # The extra element is so that we can iterate all the way through.
-        azidivs = range(0, gridshape[1], chunkSize) + [gridshape[1]]
+        azidivs = range(0, self._gridshape[1], chunkSize) + [self._gridshape[1]]
 
         chunkIters = [cycle(slice(start, start + 1) for
                             start in elevs),
                       cycle(slice(start, stop, 1) for start, stop
                             in zip(azidivs[:-1], azidivs[1:])),
-                      cycle((slice(0, gridshape[2], 1),))]
+                      cycle((slice(0, self._gridshape[2], 1),))]
         chunkCnts = [len(elevs), len(azidivs) - 1, 1]
 
         #print self, "Azidivs:", azidivs
-        iterChunk = BaseNDIter(chunkIters, chunkCnts, (1, 0, 2))
+        iterChunk = BaseNDIter(chunkIters, chunkCnts, (1, 0, 2), doCycle)
 
-        timeToComplete = datetime.timedelta()
+        ScanJob.__init__(self, iterChunk, doCycle=False)
+        self.T = self._timeForJob()
+        self.U = max(updatePeriod, self.T)
+
+    def _timeForJob(self) :
+        timeToComplete = datetime.timedelta(0)
         for dwell in self._dwellTimes :
-            timeToComplete += (dwell * gridshape[1])
-
-        if timeToComplete > updatePeriod :
-            updatePeriod = timeToComplete
-
-        ScanJob.__init__(self, iterChunk, doCycle)
-        self.U = updatePeriod
-        self.T = datetime.timedelta()
+            timeToComplete += (dwell * self._gridshape[1])
+        return timeToComplete
 
     def _get_dwelltime(self) :
         # Based on the current elevation angle,
@@ -356,7 +372,7 @@ class Surveillance(ScanJob) :
 
         ScanJob.__init__(self, iterChunk, doCycle)
         self.U = updatePeriod
-        self.T = datetime.timedelta()
+        self.T = updatePeriod
         self.prt = prt
         self.dwellTime = dwellTime
 
@@ -371,7 +387,7 @@ if __name__ == '__main__' :
     print "-----------------"
     a = Surveillance(64000, gridshape, slices=vol, doCycle=False)
 
-    print a.radials, len(a.radials), a.U
+    print a.radials, len(a._origradials), a.U
     
     for index, b in zip(range(20), a) :
         #print a.radials._chunkIndices, a.radials._chunkCnts
@@ -382,7 +398,7 @@ if __name__ == '__main__' :
     print "----------"
     a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=0)
 
-    print a.radials, len(a.radials), a.U
+    print a.radials, len(a._origradials), a.U
 
     for b in a :
         print b.T, b.currslice
@@ -391,7 +407,7 @@ if __name__ == '__main__' :
     print "----------"
     a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=1)
 
-    print a.radials, len(a.radials), a.U
+    print a.radials, len(a._origradials), a.U
 
     for index, b in zip(range(40), a) :
         print b.T, b.currslice
@@ -401,7 +417,7 @@ if __name__ == '__main__' :
     vol = (slice(0, 3), slice(20, 184, 1), slice(None))
     a = VCP(21, gridshape, slices=vol, doCycle=False, elevOffset=0)
 
-    print a.radials, len(a.radials), a.U
+    print a.radials, len(a._origradials), a.U
 
     for index, b in zip(range(40), a) :
         print b.T, b.currslice

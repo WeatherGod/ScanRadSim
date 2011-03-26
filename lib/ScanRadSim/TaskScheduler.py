@@ -30,8 +30,8 @@ class TaskScheduler(object) :
 
     def _remain_time(self, job) :
         """
-        This function is to return the remaining time for an
-        active task for a particular job.
+        This function is to return the remaining time for the
+        active task(s) for a particular job.
 
         This function has an important purpose:
         If a job has a currently active task, then its loopcnt
@@ -50,26 +50,31 @@ class TaskScheduler(object) :
         "so far".  Therefore, we correct this by providing this
         function which checks to see if the job has an active
         task and returns the time remaining for the task.
-        """
-        if job is not None and job.is_running :
-            for index in range(len(self.active_tasks)) :
-                if job.currtask is self.active_tasks[index] :
-                    return job.currtask.T - self._active_time[index]
 
-            raise ValueError("Nothing matched!  Maybe this job's task belonged to another scheduler?")
+        Keeping in mind that a job might have multiple active
+        tasks at the same time, we return the largest remaining
+        time.
+        """
+        if job is not None :
+            remainTimes = [timedelta(0)]
+            for aTask, life in zip(self.active_tasks, self._active_time) :
+                if aTask is not None and job is aTask.job :
+                    remainTimes.append(aTask.T - life)
+
+            return max(remainTimes)
         else :
             return timedelta(0)
 
     # NOTE: These next few functions are temporarially assuming the existance
     #       of a member variable called "self.surveil_job".
     def occupancy(self) :
-        Ts, lens, Us = zip(*[(aJob.T, len(aJob._origradials),
-                              aJob.true_update_period(self._remain_time(aJob) + jobtime)) for
-                             aJob, jobtime in zip(self.jobs + [self.surveil_job],
-                                                  self._job_lifetimes + [self._schedlifetime])])
+        Ts, Us = zip(*[(aJob.T,
+                        aJob.true_update_period(self._remain_time(aJob) + jobtime)) for
+                       aJob, jobtime in zip(self.jobs + [self.surveil_job],
+                                            self._job_lifetimes + [self._schedlifetime])])
         try :
-            return sum([(_to_secs(t * aLen) / float(_to_secs(u))) for
-                        t, aLen, u in zip(Ts, lens, Us) if
+            return sum([(_to_secs(t) / float(_to_secs(u))) for
+                        t, u in zip(Ts, Us) if
                         t != timedelta() and u != timedelta.max]) / self._concurrent_max
         except ValueError :
             # In the case there are no valid values to sum
@@ -77,18 +82,18 @@ class TaskScheduler(object) :
 
     def acquisition(self) :
 
-        U_times = [aJob.true_update_period(self._remain_time(aJob) + jobtime) for
-                   aJob, jobtime in
-                   zip(self.jobs + [self.surveil_job],
-                       self._job_lifetimes + [self._schedlifetime])]
-        #print U_times
+        Us = [aJob.true_update_period(self._remain_time(aJob) + jobtime) for
+              aJob, jobtime in
+              zip(self.jobs + [self.surveil_job],
+                  self._job_lifetimes + [self._schedlifetime])]
+        #print Us
         #print [str(life) for life in self._job_lifetimes + [self._schedlifetime]]
 
         try :
-            max_u = _to_secs(max([prd for prd in U_times if prd != timedelta.max]))
-            return sum([max_u * _to_secs(aJob.T * len(aJob._origradials)) /
+            max_u = _to_secs(max([prd for prd in Us if prd != timedelta.max]))
+            return sum([max_u * _to_secs(aJob.T) /
                         _to_secs(prd) for aJob, prd in
-                        zip(self.jobs + [self.surveil_job], U_times) if
+                        zip(self.jobs + [self.surveil_job], Us) if
                         prd != timedelta.max])
         except ValueError :
             return np.nan
@@ -102,11 +107,11 @@ class TaskScheduler(object) :
         by the number of scans that would have been performed by a single radar beam.
         """
         #print [self._remain_time(aJob) for aJob in self.jobs]
-        U_times = [aJob.true_update_period(self._remain_time(aJob) + joblife) for
-                   aJob, joblife in zip(self.jobs, self._job_lifetimes)]
-        if len(U_times) > 0 :
+        Us = [aJob.true_update_period(self._remain_time(aJob) + joblife) for
+              aJob, joblife in zip(self.jobs, self._job_lifetimes)]
+        if len(Us) > 0 :
             return (sum([1.0 / _to_secs(u) for u in
-                         U_times if u != timedelta.max]) *
+                         Us if u != timedelta.max]) *
                     _to_secs(base_update_period) / len(self.jobs))
         else :
             return np.nan
