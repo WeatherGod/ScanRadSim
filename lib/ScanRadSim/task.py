@@ -269,12 +269,12 @@ class VCP(ScanJob) :
         dwellTimes_elevs = _wsr_dwelltime(vcp)
         prts_elevs = _wsr_prts(vcp)
 
-        # This must be done before remaking gridshape because I
-        # need to know how wide the original grid was.
-        if updatePeriod is None :
-            updatePeriod = datetime.timedelta()
-            for aTime in dwellTimes_elevs :
-                updatePeriod += aTime * gridshape[1]
+        ## This must be done before remaking gridshape because I
+        ## need to know how wide the original grid was.
+        #if updatePeriod is None :
+        #    updatePeriod = datetime.timedelta()
+        #    for aTime in dwellTimes_elevs :
+        #        updatePeriod += aTime * gridshape[1]
 
         # These grid values are in the grid coordinate system
         # (which is relative to the absolute coordinates by elevOffset),
@@ -312,7 +312,8 @@ class VCP(ScanJob) :
 
         ScanJob.__init__(self, iterChunk, doCycle=False)
         self.T = self._timeForJob()
-        self.U = max(updatePeriod, self.T)
+        self.U = max(updatePeriod if updatePeriod is not None else datetime.timedelta(0),
+                     self.T)
 
     def _timeForJob(self) :
         timeToComplete = datetime.timedelta(0)
