@@ -56,8 +56,19 @@ class ScanJob(object) :
             self.radials = cycle(self.radials)
         #self.currslice = None
         #self.currtask = None
+        self.doCycle = doCycle
         self._nextcallCnt = 0
         self._recent_task = None
+
+    def reset(self, newradials) :
+        self._origradials = newradials
+        self._startingPoint, self.radials = tee(newradials, 2)
+        if self.doCycle :
+            self.radials = cycle(self.radials)
+        self._nextcallCnt = 0
+        self.T = self._timeForJob()
+        self.U = max(self.U, self.T)
+
 
     """
     def _set_running(self, is_run) :
