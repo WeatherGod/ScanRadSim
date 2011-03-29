@@ -82,7 +82,8 @@ class SimpleSensingSys(AdaptSenseSys) :
         #totScanRads = sum(radCnts)
         gridshape = radData[self.volume].shape
         
-        jobsToAdd = [StaticJob(timedelta(seconds=40),
+        jobsToAdd = [StaticJob(timedelta(seconds=20),
+                               #(radials,),
                                ChunkIter(gridshape, width, radials),
                                dwellTime=timedelta(microseconds=64000),
                                prt=timedelta(microseconds=800)) for
@@ -144,5 +145,98 @@ class PPISensingSys(AdaptSenseSys) :
         self.prevJobs = jobsToAdd
         return jobsToAdd, jobsToRemove
 register_sensing(PPISensingSys)
+
+class SimpleTrackingSys(AdaptSenseSys) :
+    """
+    Just scan for every contiguous +35dBz region, but in a PPI fashion.
+    Also, perform a simple "overlap" tracking method to keep jobs alive
+    and to kill old jobs.
+    """
+    name = "SimpleTracking"
+    def __init__(self, volume=None) :
+        self.prevJobs = []
+        self._jobRegions = []
+        AdaptSenseSys.__init__(self, volume)
+
+    def __call__(self, radData) :
+        # The label and find_objects will slice only the
+        # relevant radials, but we still need something to
+        # represent the entire length of the radial.
+        fullRange = slice(None)
+
+        labels, cnt = label(radData[self.volume] >= 35.0)
+
+        if cnt == 0 :
+            return [], self.prevJobs
+
+        objects = find_objects(labels)
+
+        allRadials = [radials[:-1] + (fullRange,) for radials in objects]
+        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
+                                aSlice in radials[:-1]])) for
+                   radials in objects]
+        widths = [radials[1].stop - radials[1].start for
+                  radials in objects]
+
+        gridshape = radData[self.volume].shape
+
+        job2Object = []
+        jobsToRemove = []
+        howMuchOverlap = []
+        for oldJob, oldSlice in zip(self.prevJobs, self._jobRegions) :
+            # Ignore zeros with "[1:]".
+            labelCnts = np.bincount(labels[oldSlice].flat, minlength=cnt + 1)[1:]
+            # We also know that there is at least one, so we can go ahead with an argmax
+            bestOverlap = np.argmax(labelCnts)
+            howMuchOverlap.append(labelCnts[bestOverlap])
+            if labelCnts[bestOverlap] == 0 :
+                # This old job does not overlap sufficiently with any currently
+                # identified features.
+                job2Object.append(-1)
+                jobsToRemove.append(oldJob)
+            else :
+                if bestOverlap in job2Object :
+                    # This label has already been paired with
+                    # an existing job.  Need to determine which to keep.
+                    # Keep the bigger one...
+                    otherIndex = job2Object.index(bestOverlap)
+                    if howMuchOverlap[otherIndex] < labelCnts[bestOverlap] :
+                        # This job has better overlap than the other one.
+                        # End the other job.
+                        oldJob.reset(ChunkIter(gridshape, widths[bestOverlap], allRadials[bestOverlap]))
+
+                        job2Object[otherIndex] = -1
+                        jobsToRemove.append(self.prevJobs[otherIndex])
+                        job2Object.append(bestOverlap)
+                    else :
+                        # The other job had better match, so end this one instead
+                        job2Object.append(-1)
+                        jobsToRemove.append(oldJob)
+                else :
+                    oldJob.reset(ChunkIter(gridshape, widths[bestOverlap], allRadials[bestOverlap]))
+                    job2Object.append(bestOverlap)
+
+        #print "Rad Counts:", radCnts
+        jobsToAdd = []
+        slicesToAdd = []
+        for index, (radials, cnt, width) in enumerate(zip(allRadials, radCnts, widths)) :
+            if cnt >= 20 and not index in job2Object :
+                # An object without a pre-existing job!
+                jobsToAdd.append(StaticJob(timedelta(seconds=40),
+                               #(radials,),
+                               ChunkIter(gridshape, width, radials),
+                               dwellTime=timedelta(microseconds=64000),
+                               prt=timedelta(microseconds=800)))
+                slicesToAdd.append(objects[index])
+
+        jobsToKeep = [aJob for aJob in self.prevJobs if aJob not in jobsToRemove]
+        slicesToKeep = [aSlice for aJob, aSlice in 
+                        zip(self.prevJobs, self._jobRegions) if
+                        aJob not in jobsToRemove]
+
+        self.prevJobs = jobsToKeep + jobsToAdd
+        self._jobRegions = slicesToKeep + slicesToAdd
+        return jobsToAdd, jobsToRemove
+register_sensing(SimpleTrackingSys)
 
 
