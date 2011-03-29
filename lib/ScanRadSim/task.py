@@ -57,6 +57,7 @@ class ScanJob(object) :
         #self.currslice = None
         #self.currtask = None
         self._nextcallCnt = 0
+        self._recent_task = None
 
     """
     def _set_running(self, is_run) :
@@ -148,7 +149,8 @@ class ScanJob(object) :
         #print "Scan Job:", self, "  T:", self.T, "  rad cnt:", self._slicesize()
         #print "Slice:", [aSlice.indices(aSlice.stop - aSlice.start) for aSlice in self.currslice],\
         #      "  T:", self.T, "  rad cnt:", self._slicesize(), " indices:", self.radials._chunkIndices
-        return ScanOperation(self, nextslice, txTime, rxTime)
+        self._recent_task = ScanOperation(self, nextslice, txTime, rxTime)
+        return self._recent_task
 
 
 class StaticJob(ScanJob) :
