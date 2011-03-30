@@ -62,6 +62,7 @@ class SimpleSensingSys(AdaptSenseSys) :
         labels, cnt = label(maxView >= 35.0)
 
         if cnt == 0 :
+            self.prevJobs = []
             return [], jobsToRemove
 
         objects = find_objects(labels)
@@ -115,6 +116,7 @@ class PPISensingSys(AdaptSenseSys) :
         labels, cnt = label(radData[self.volume] >= 35.0)
 
         if cnt == 0 :
+            self.prevJobs = []
             return [], jobsToRemove
 
         objects = find_objects(labels)
@@ -167,7 +169,9 @@ class SimpleTrackingSys(AdaptSenseSys) :
         labels, cnt = label(radData[self.volume] >= 35.0)
 
         if cnt == 0 :
-            return [], self.prevJobs
+            jobsToRemove = self.prevJobs
+            self.prevJobs = []
+            return [], jobsToRemove
 
         objects = find_objects(labels)
 
