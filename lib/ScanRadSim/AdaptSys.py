@@ -96,11 +96,11 @@ register_sensing(SimpleSensingSys)
 
 
 
-class PPISensingSys(AdaptSenseSys) :
+class VolSensingSys(AdaptSenseSys) :
     """
-    Just scan for every contiguous +35dBz region, but in a PPI fashion.
+    Just scan for every contiguous +35dBz region, but for the whole 3D volume.
     """
-    name = "SimplePPI"
+    name = "SimpleVol"
     def __init__(self, volume=None) :
         self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
@@ -146,11 +146,11 @@ class PPISensingSys(AdaptSenseSys) :
 
         self.prevJobs = jobsToAdd
         return jobsToAdd, jobsToRemove
-register_sensing(PPISensingSys)
+register_sensing(VolSensingSys)
 
 class SimpleTrackingSys(AdaptSenseSys) :
     """
-    Just scan for every contiguous +35dBz region, but in a PPI fashion.
+    Just scan for every contiguous +35dBz region in the 3D volume.
     Also, perform a simple "overlap" tracking method to keep jobs alive
     and to kill old jobs.
     """
