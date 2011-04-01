@@ -49,198 +49,190 @@ class SimpleSensingSys(AdaptSenseSys) :
         AdaptSenseSys.__init__(self, volume)
 
     def __call__(self, radData) :
+        # Find the maximum value along each radial.
+        maxView = np.nanmax(radData[self.volume], axis=-1)
+        features, labels = self._find_features(maxView)
+        return self._process_features(radData[self.volume], features)
+
+    def _radial_counts(self, objects) :
+        # Assumes last dimension is range-gate
+        return [self._radial_cnt(radials[:-1]) for radials in objects]
+
+    def _radial_cnt(self, radials) :
+        return int(np.prod([aSlice.stop - aSlice.start for
+                            aSlice in radials]))
+
+    def _slice_widths(self, objects) :
+        # Assumes second dimension is azimuth
+        return [self._radial_cnt(radials[1:2]) for radials in objects]
+
+    def _slice_heights(self, objects) :
+        # Assumes first dimension is elevation
+        return [self._radial_cnt(radials[0:1]) for radials in objects]
+
+    def _find_features(self, radData) :
+        # Assumes first two dims are elevation and azimuth
+        labels, cnt = label(radData >= 35.0)
+
+        if cnt == 0 :
+            return [], labels
+
+        objects = find_objects(labels)
+
+        # In the following, we will build the list of features that
+        # are large enough to keep.  We will also modify the labels
+        # array so that the values in there are merely the index
+        # number for the radial in allRadials (minus one, of course).
+        allRadials = []
+        newIndex = 0
+        for index, radials in enumerate(objects) :
+            # Assumes that the first two dims are elevation and azimuth
+            cnt = self._radial_cnt(radials[:2])
+
+            if cnt < 20 :
+                # Too small to care...
+                labels[radials][labels[radials] == (index + 1)] = 0
+            else :
+                newIndex += 1
+                allRadials.append(radials)
+                # Remember, radials covers more area than labeled.
+                # So, we only want to impact the relevant labels.
+                # We use labels[radials] to help shrink the search area.
+                labels[radials][labels[radials] == (index + 1)] = newIndex
+
+        #print len(allRadials), labels.max()
+        return allRadials, labels
+
+    def _reform_slices(self, features) :
+        # Assumes that the first two dimensions are elevation and azimuth
+        # Make it so that the range-gate dimension is sliced in its entirety.
+        return [radials[:2] + (slice(None),) for radials in features]
+
+    def _process_features(self, radData, features) :
         jobsToRemove = self.prevJobs
 
         # The label and find_objects will slice only the
         # relevant radials, but we still need something to
-        # represent the entire length of the radial.
-        fullRange = slice(None, None, None)
+        # represent the entire length of the radials.
+        allRadials = self._reform_slices(features)
+        widths = self._slice_widths(features)
 
-        # Find the maximum value along each radial.
-        maxView = np.nanmax(radData[self.volume], axis=-1)
-        #envTotRads = np.prod(radData[self.volume].shape[:-1])
-        labels, cnt = label(maxView >= 35.0)
-
-        if cnt == 0 :
-            self.prevJobs = []
-            return [], jobsToRemove
-
-        objects = find_objects(labels)
-
-        allRadials = [radials + (fullRange,) for radials in objects]
-        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
-                                aSlice in radials])) for
-                   radials in objects]
-        widths = [radials[1].stop - radials[1].start for
-                  radials in objects]
-
-        #print "Rad Counts:", radCnts
-        # Filter out the small storms
-        allRadials = [radials for radials, cnt in zip(allRadials, radCnts) if cnt >= 20]
-        widths = [width for width, cnt in zip(widths, radCnts) if cnt >= 20]
-        radCnts = [cnt for cnt in radCnts if cnt >= 20]
-
-        #totScanRads = sum(radCnts)
-        gridshape = radData[self.volume].shape
+        gridshape = radData.shape
         
         jobsToAdd = [StaticJob(timedelta(seconds=20),
                                #(radials,),
                                ChunkIter(gridshape, width, radials),
                                dwellTime=timedelta(microseconds=64000),
                                prt=timedelta(microseconds=800)) for
-                     radials, cnt, width in zip(allRadials, radCnts, widths)]
+                     radials, width in zip(allRadials, widths)]
 
         self.prevJobs = jobsToAdd
+        #print "Add:", jobsToAdd
+        #print "Remove:", jobsToRemove
         return jobsToAdd, jobsToRemove
 register_sensing(SimpleSensingSys)
 
 
 
-class VolSensingSys(AdaptSenseSys) :
+class VolSensingSys(SimpleSensingSys) :
     """
     Just scan for every contiguous +35dBz region, but for the whole 3D volume.
     """
     name = "SimpleVol"
     def __init__(self, volume=None) :
-        self.prevJobs = []
-        AdaptSenseSys.__init__(self, volume)
+        SimpleSensingSys.__init__(self, volume)
 
     def __call__(self, radData) :
-        jobsToRemove = self.prevJobs
-
-        # The label and find_objects will slice only the
-        # relevant radials, but we still need something to
-        # represent the entire length of the radial.
-        fullRange = slice(None, None, None)
-
-        labels, cnt = label(radData[self.volume] >= 35.0)
-
-        if cnt == 0 :
-            self.prevJobs = []
-            return [], jobsToRemove
-
-        objects = find_objects(labels)
-
-        allRadials = [radials[:-1] + (fullRange,) for radials in objects]
-        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
-                                aSlice in radials[:-1]])) for
-                   radials in objects]
-        widths = [radials[1].stop - radials[1].start for
-                  radials in objects]
-
-        #print "Rad Counts:", radCnts
-        # Filter out the small storms
-        allRadials = [radials for radials, cnt in zip(allRadials, radCnts) if cnt >= 20]
-        widths = [width for width, cnt in zip(widths, radCnts) if cnt >= 20]
-        radCnts = [cnt for cnt in radCnts if cnt >= 20]
-
-        #totScanRads = sum(radCnts)
-        gridshape = radData[self.volume].shape
-        
-        jobsToAdd = [StaticJob(timedelta(seconds=40),
-                               #(radials,),
-                               ChunkIter(gridshape, width, radials),
-                               dwellTime=timedelta(microseconds=64000),
-                               prt=timedelta(microseconds=800)) for
-                     radials, cnt, width in zip(allRadials, radCnts, widths)]
-
-        self.prevJobs = jobsToAdd
-        return jobsToAdd, jobsToRemove
+        features, labels = self._find_features(radData[self.volume])
+        return self._process_features(radData[self.volume], features)
 register_sensing(VolSensingSys)
 
-class SimpleTrackingSys(AdaptSenseSys) :
+
+class SimpleTrackingSys(VolSensingSys) :
     """
-    Just scan for every contiguous +35dBz region in the 3D volume.
-    Also, perform a simple "overlap" tracking method to keep jobs alive
-    and to kill old jobs.
+    Scan for every contiguous +35dBz region in the 3D volume.
+    Also, utilize a simple overlap tracking algorithm to provide tracking data.
     """
     name = "SimpleTracking"
     def __init__(self, volume=None) :
-        self.prevJobs = []
         self._jobRegions = []
-        AdaptSenseSys.__init__(self, volume)
+        VolSensingSys.__init__(self, volume)
 
     def __call__(self, radData) :
-        # The label and find_objects will slice only the
-        # relevant radials, but we still need something to
-        # represent the entire length of the radial.
-        fullRange = slice(None)
+        features, labels = self._find_features(radData[self.volume])
+        return self._process_features(radData[self.volume], features, labels)
 
-        labels, cnt = label(radData[self.volume] >= 35.0)
+    def _process_features(self, radData, features, labels) :
+        job2Feature = self._track_features(features, labels)
+
+        jobsToKeep = []
+        slicesToKeep = []
+        jobsToRemove = []
+
+        gridshape = radData.shape
+        allRadials = self._reform_slices(features)
+        widths = self._slice_widths(features)
+
+        for featIndex, oldJob in zip(job2Feature, self.prevJobs) :
+            if featIndex == -1 :
+                jobsToRemove.append(oldJob)
+            else :
+                oldJob.reset(ChunkIter(gridshape, widths[featIndex], allRadials[featIndex]))
+                jobsToKeep.append(oldJob)
+                slicesToKeep.append(allRadials[featIndex])
+
+        jobsToAdd = []
+        slicesToAdd = []
+        for index, (radials, feature, width) in enumerate(zip(allRadials, features, widths)) :
+            if index not in job2Feature :
+                # An object without a pre-existing job!
+                jobsToAdd.append(StaticJob(timedelta(seconds=20),
+                               #(radials,),
+                               ChunkIter(gridshape, width, radials),
+                               dwellTime=timedelta(microseconds=64000),
+                               prt=timedelta(microseconds=800)))
+                slicesToAdd.append(feature)
+
+        self.prevJobs = jobsToKeep + jobsToAdd
+        self._jobRegions = slicesToKeep + slicesToAdd
+        return jobsToAdd, jobsToRemove
+
+    def _track_features(self, features, labels) :
+        job2Feature = []
+        howMuchOverlap = []
+        cnt = len(features)
 
         if cnt == 0 :
-            jobsToRemove = self.prevJobs
-            self.prevJobs = []
-            return [], jobsToRemove
+            return job2Feature
 
-        objects = find_objects(labels)
-
-        allRadials = [radials[:-1] + (fullRange,) for radials in objects]
-        radCnts = [int(np.prod([aSlice.stop - aSlice.start for
-                                aSlice in radials[:-1]])) for
-                   radials in objects]
-        widths = [radials[1].stop - radials[1].start for
-                  radials in objects]
-
-        gridshape = radData[self.volume].shape
-
-        job2Object = []
-        jobsToRemove = []
-        howMuchOverlap = []
         for oldJob, oldSlice in zip(self.prevJobs, self._jobRegions) :
             # Ignore zeros with "[1:]".
-            labelCnts = np.bincount(labels[oldSlice].flat, minlength=cnt + 1)[1:]
+            labelCnts = np.bincount(labels[oldSlice].flatten(), minlength=cnt + 1)[1:]
             # We also know that there is at least one, so we can go ahead with an argmax
             bestOverlap = np.argmax(labelCnts)
             howMuchOverlap.append(labelCnts[bestOverlap])
             if labelCnts[bestOverlap] == 0 :
                 # This old job does not overlap sufficiently with any currently
                 # identified features.
-                job2Object.append(-1)
-                jobsToRemove.append(oldJob)
+                job2Feature.append(-1)
             else :
-                if bestOverlap in job2Object :
+                if bestOverlap in job2Feature :
                     # This label has already been paired with
                     # an existing job.  Need to determine which to keep.
                     # Keep the bigger one...
-                    otherIndex = job2Object.index(bestOverlap)
+                    otherIndex = job2Feature.index(bestOverlap)
                     if howMuchOverlap[otherIndex] < labelCnts[bestOverlap] :
                         # This job has better overlap than the other one.
                         # End the other job.
-                        oldJob.reset(ChunkIter(gridshape, widths[bestOverlap], allRadials[bestOverlap]))
-
-                        job2Object[otherIndex] = -1
-                        jobsToRemove.append(self.prevJobs[otherIndex])
-                        job2Object.append(bestOverlap)
+                        job2Feature[otherIndex] = -1
+                        job2Feature.append(bestOverlap)
                     else :
                         # The other job had better match, so end this one instead
-                        job2Object.append(-1)
-                        jobsToRemove.append(oldJob)
+                        job2Feature.append(-1)
                 else :
-                    oldJob.reset(ChunkIter(gridshape, widths[bestOverlap], allRadials[bestOverlap]))
-                    job2Object.append(bestOverlap)
+                    job2Feature.append(bestOverlap)
 
-        #print "Rad Counts:", radCnts
-        jobsToAdd = []
-        slicesToAdd = []
-        for index, (radials, cnt, width) in enumerate(zip(allRadials, radCnts, widths)) :
-            if cnt >= 20 and not index in job2Object :
-                # An object without a pre-existing job!
-                jobsToAdd.append(StaticJob(timedelta(seconds=40),
-                               #(radials,),
-                               ChunkIter(gridshape, width, radials),
-                               dwellTime=timedelta(microseconds=64000),
-                               prt=timedelta(microseconds=800)))
-                slicesToAdd.append(objects[index])
-
-        jobsToKeep = [aJob for aJob in self.prevJobs if aJob not in jobsToRemove]
-        slicesToKeep = [aSlice for aJob, aSlice in 
-                        zip(self.prevJobs, self._jobRegions) if
-                        aJob not in jobsToRemove]
-
-        self.prevJobs = jobsToKeep + jobsToAdd
-        self._jobRegions = slicesToKeep + slicesToAdd
-        return jobsToAdd, jobsToRemove
+        return job2Feature
 register_sensing(SimpleTrackingSys)
 
 
