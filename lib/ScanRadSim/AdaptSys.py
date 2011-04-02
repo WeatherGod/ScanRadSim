@@ -43,12 +43,16 @@ register_sensing(NullSensingSys)
 from scipy.ndimage.measurements import find_objects, label, center_of_mass
 class SimpleSensingSys(AdaptSenseSys) :
     """
-    Just scan for every contiguous +35dBz region.
+    Just scan for every contiguous +35dBz region (that has values
+    greater than 40).
     """
     name = "Simple"
     def __init__(self, volume=None) :
         self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
+        self._targetU = 20
+        self._targetDwell = 64000
+        self._targetPRT = 800
 
     def __call__(self, currTime, radData) :
         # Find the maximum value along each radial.
@@ -91,16 +95,21 @@ class SimpleSensingSys(AdaptSenseSys) :
             # Assumes that the first two dims are elevation and azimuth
             cnt = self._radial_cnt(radials[:2])
 
+            # Remember, radials covers more area than labeled.
+            # So, we only want to modify the relevant labels.
+            # We use labels[radials] to help shrink the search area.
+            where = (labels[radials] == (index + 1))
+
             if cnt < 20 :
                 # Too small to care...
-                labels[radials][labels[radials] == (index + 1)] = 0
+                labels[radials][where] = 0
+            elif np.nanmax(radData[radials][where]) < 40.0 :
+                # Too weak to care...
+                labels[radials][where] = 0
             else :
                 newIndex += 1
                 allRadials.append(radials)
-                # Remember, radials covers more area than labeled.
-                # So, we only want to impact the relevant labels.
-                # We use labels[radials] to help shrink the search area.
-                labels[radials][labels[radials] == (index + 1)] = newIndex
+                labels[radials][where] = newIndex
 
         #print len(allRadials), labels.max()
         return allRadials, labels
@@ -121,11 +130,11 @@ class SimpleSensingSys(AdaptSenseSys) :
 
         gridshape = radData.shape
         
-        jobsToAdd = [StaticJob(timedelta(seconds=20),
+        jobsToAdd = [StaticJob(timedelta(seconds=self._targetU),
                                #(radials,),
                                ChunkIter(gridshape, width, radials),
-                               dwellTime=timedelta(microseconds=64000),
-                               prt=timedelta(microseconds=800)) for
+                               dwellTime=timedelta(microseconds=self._targetDwell),
+                               prt=timedelta(microseconds=self._targetPRT)) for
                      radials, width in zip(allRadials, widths)]
 
         self.prevJobs = jobsToAdd
@@ -138,7 +147,8 @@ register_sensing(SimpleSensingSys)
 
 class VolSensingSys(SimpleSensingSys) :
     """
-    Just scan for every contiguous +35dBz region, but for the whole 3D volume.
+    Just scan for every contiguous +35dBz region (that has values greater
+    than 40), but for the whole 3D volume.
     """
     name = "SimpleVol"
     def __init__(self, volume=None) :
@@ -159,6 +169,9 @@ class SimpleTrackingSys(VolSensingSys) :
     def __init__(self, volume=None) :
         self._jobRegions = []
         VolSensingSys.__init__(self, volume)
+        self._targetU = 30
+        self._targetDwell = 64000
+        self._targetPRT = 800
 
     def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
@@ -188,11 +201,11 @@ class SimpleTrackingSys(VolSensingSys) :
         for index, (radials, feature, width) in enumerate(zip(allRadials, features, widths)) :
             if index not in job2Feature :
                 # An object without a pre-existing job!
-                jobsToAdd.append(StaticJob(timedelta(seconds=20),
+                jobsToAdd.append(StaticJob(timedelta(seconds=self._targetU),
                                #(radials,),
                                ChunkIter(gridshape, width, radials),
-                               dwellTime=timedelta(microseconds=64000),
-                               prt=timedelta(microseconds=800)))
+                               dwellTime=timedelta(microseconds=self._targetDwell),
+                               prt=timedelta(microseconds=self._targetPRT)))
                 slicesToAdd.append(feature)
 
         self.prevJobs = jobsToKeep + jobsToAdd
@@ -253,12 +266,16 @@ class SCITish(VolSensingSys) :
         self._strmTracks = []
         self._infoTracks = []
 
-        # Function for converting data array indices into rectalinear coordinates
+        # Function for converting data array indices into rectilinear coordinates
         # Default is just identity
         self.to_rect = lambda x : x
-        self._speedThresh = 10.0        # TODO: just for now...
+        self._speedThresh = 0.25        # TODO: just for now...
 
         VolSensingSys.__init__(self, volume)
+
+        self._targetU = 30
+        self._targetDwell = 64000
+        self._targetPRT = 800
 
     def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
@@ -284,25 +301,28 @@ class SCITish(VolSensingSys) :
         jobsToAdd = []
         for aTrackID in tracksToAdd :
             featIndex = self._strmTracks[aTrackID]['cornerIDs'][-1]
-            jobsToAdd.append(StaticJob(timedelta(seconds=20),
+            jobsToAdd.append(StaticJob(timedelta(seconds=self._targetU),
                                        #(allRadials[featIndex],),
                                        ChunkIter(gridshape, widths[featIndex], allRadials[featIndex]),
-                                       dwellTime=timedelta(microseconds=64000),
-                                       prt=timedelta(microseconds=800)))
+                                       dwellTime=timedelta(microseconds=self._targetDwell),
+                                       prt=timedelta(microseconds=self._targetPRT)))
 
         self.prevJobs.extend(jobsToAdd)
         return jobsToAdd, jobsToRemove
 
     def _track_features(self, radData, currTime, features, labels) :
         centroids = center_of_mass(radData, labels, range(1, len(features) + 1))
-        # Need to condense this down to only the first two dims,
+        # Need to condense this down to only the *last* two dims,
         # oh, and convert to rectilinear coordinates
-        centroids = [self.to_rect(cent[:2]) for cent in centroids]
+        centroids = [self.to_rect(cent[1:]) for cent in centroids]
+        #for cent in centroids :
+        #    print cent
 
         strmAdap = {'distThresh': self._speedThresh * (currTime - self._stateHist[-1]['volTime'] if
                                                        len(self._stateHist) > 0 else 0.0)}
-        aVol = {'frameNum': float(len(self._stateHist)),
-                'volTime': currTime,
+        #print "DistThresh:", strmAdap['distThresh']
+        aVol = {'frameNum': len(self._stateHist),
+                'volTime': int(round(currTime)),
                 'stormCells': np.array([(x, y, index) for index, (x, y) in
                                         enumerate(centroids)],
                                         dtype=corner_dtype)}
@@ -310,6 +330,4 @@ class SCITish(VolSensingSys) :
                                    self._strmTracks, self._infoTracks, aVol)
 
 register_sensing(SCITish)
-
-
 
