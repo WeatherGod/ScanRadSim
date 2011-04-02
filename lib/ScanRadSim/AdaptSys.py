@@ -3,6 +3,8 @@ from NDIter import ChunkIter
 import numpy as np
 from datetime import timedelta, datetime
 
+from ScanSim import _to_seconds
+
 _sensing_sys = {}
 def register_sensing(sysClass) :
     if sysClass.name not in _sensing_sys :
@@ -25,7 +27,7 @@ class AdaptSenseSys(object) :
 
         self.volume = volume
 
-    def __call__(self, radData) :
+    def __call__(self, currTime, radData) :
         raise NotImplementedError("This function has to be implemented by the derived AdaptSenseSys class!")
 
 class NullSensingSys(AdaptSenseSys) :
@@ -38,7 +40,7 @@ class NullSensingSys(AdaptSenseSys) :
 register_sensing(NullSensingSys)
 
 
-from scipy.ndimage.measurements import find_objects, label
+from scipy.ndimage.measurements import find_objects, label, center_of_mass
 class SimpleSensingSys(AdaptSenseSys) :
     """
     Just scan for every contiguous +35dBz region.
@@ -48,7 +50,7 @@ class SimpleSensingSys(AdaptSenseSys) :
         self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
 
-    def __call__(self, radData) :
+    def __call__(self, currTime, radData) :
         # Find the maximum value along each radial.
         maxView = np.nanmax(radData[self.volume], axis=-1)
         features, labels = self._find_features(maxView)
@@ -142,7 +144,7 @@ class VolSensingSys(SimpleSensingSys) :
     def __init__(self, volume=None) :
         SimpleSensingSys.__init__(self, volume)
 
-    def __call__(self, radData) :
+    def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
         return self._process_features(radData[self.volume], features)
 register_sensing(VolSensingSys)
@@ -158,7 +160,7 @@ class SimpleTrackingSys(VolSensingSys) :
         self._jobRegions = []
         VolSensingSys.__init__(self, volume)
 
-    def __call__(self, radData) :
+    def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
         return self._process_features(radData[self.volume], features, labels)
 
@@ -234,5 +236,80 @@ class SimpleTrackingSys(VolSensingSys) :
 
         return job2Feature
 register_sensing(SimpleTrackingSys)
+
+
+from ZigZag.Trackers import scit
+from ZigZag.TrackUtils import corner_dtype
+class SCITish(VolSensingSys) :
+    """
+    It is like SCIT, but not exactly...
+
+    Perform SCIT tracking for every contiguous +35dBz region in the 3D volume.
+    """
+    name = "SCITish"
+    def __init__(self, volume=None) :
+        self._jobRegions = []
+        self._stateHist = []
+        self._strmTracks = []
+        self._infoTracks = []
+
+        # Function for converting data array indices into rectalinear coordinates
+        # Default is just identity
+        self.to_rect = lambda x : x
+        self._speedThresh = 10.0        # TODO: just for now...
+
+        VolSensingSys.__init__(self, volume)
+
+    def __call__(self, currTime, radData) :
+        features, labels = self._find_features(radData[self.volume])
+        currTime = _to_seconds(currTime)
+        return self._process_features(radData[self.volume], currTime, features, labels)
+
+    def _process_features(self, radData, currTime, features, labels) :
+        tracksToEnd, tracksToKeep, tracksToAdd = self._track_features(radData,
+                                                    currTime, features, labels)
+
+        jobsToRemove = [self.prevJobs[aTrackID] for aTrackID in tracksToEnd]
+
+        gridshape = radData.shape
+        allRadials = self._reform_slices(features)
+        widths = self._slice_widths(features)
+
+        jobsToKeep = []
+        for aTrackID in tracksToKeep :
+            featIndex = self._strmTracks[aTrackID]['cornerIDs'][-1]
+            self.prevJobs[aTrackID].reset(ChunkIter(gridshape, widths[featIndex], allRadials[featIndex]))
+            jobsToKeep.append(self.prevJobs[aTrackID])
+
+        jobsToAdd = []
+        for aTrackID in tracksToAdd :
+            featIndex = self._strmTracks[aTrackID]['cornerIDs'][-1]
+            jobsToAdd.append(StaticJob(timedelta(seconds=20),
+                                       #(allRadials[featIndex],),
+                                       ChunkIter(gridshape, widths[featIndex], allRadials[featIndex]),
+                                       dwellTime=timedelta(microseconds=64000),
+                                       prt=timedelta(microseconds=800)))
+
+        self.prevJobs.extend(jobsToAdd)
+        return jobsToAdd, jobsToRemove
+
+    def _track_features(self, radData, currTime, features, labels) :
+        centroids = center_of_mass(radData, labels, range(1, len(features) + 1))
+        # Need to condense this down to only the first two dims,
+        # oh, and convert to rectilinear coordinates
+        centroids = [self.to_rect(cent[:2]) for cent in centroids]
+
+        strmAdap = {'distThresh': self._speedThresh * (currTime - self._stateHist[-1]['volTime'] if
+                                                       len(self._stateHist) > 0 else 0.0)}
+        aVol = {'frameNum': float(len(self._stateHist)),
+                'volTime': currTime,
+                'stormCells': np.array([(x, y, index) for index, (x, y) in
+                                        enumerate(centroids)],
+                                        dtype=corner_dtype)}
+        return scit.TrackStep_SCIT(strmAdap, self._stateHist,
+                                   self._strmTracks, self._infoTracks, aVol)
+
+register_sensing(SCITish)
+
 
 
