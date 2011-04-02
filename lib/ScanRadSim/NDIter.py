@@ -3,14 +3,21 @@ import numpy as np
 
 
 class BaseNDIter(object) :
-    def __init__(self, chunkIters, chunkCnts, cycleList=None, doCycle=False) :
+    def __init__(self, chunkIters, chunkCnts, cycleList=None, doCycle=False,
+                       posOffsets=None) :
         if cycleList is None :
             cycleList = range(len(chunkIters))
+
+        if posOffsets is None :
+            posOffsets = [0] * len(chunkIters)
 
         self._doCycle = doCycle
 
         # So that I know which axes change more than others.
         self._cycleList = cycleList
+
+        # Offset to apply to the slices
+        self.posOffsets = posOffsets
 
         # So that I know how many chunks are in each axes.
         self._chunkCnts = chunkCnts
@@ -38,7 +45,12 @@ class BaseNDIter(object) :
     def next(self) :
         for axisIndex in self._cycleList :
             self._chunkIndices[axisIndex] += 1
-            self.slices[axisIndex] = self._chunkIters[axisIndex].next()
+            newSlice = self._chunkIters[axisIndex].next()
+            self.slices[axisIndex] = slice(newSlice.start + self.posOffsets[axisIndex] if
+                                            newSlice.start is not None else None,
+                                           newSlice.stop + self.posOffsets[axisIndex] if
+                                            newSlice.stop is not None else None,
+                                           newSlice.step)
 
             if self._chunkIndices[axisIndex] >= self._chunkCnts[axisIndex] :
 
