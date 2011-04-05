@@ -35,7 +35,7 @@ class NullSensingSys(AdaptSenseSys) :
     Does not produce any adaptive scaning jobs.
     """
     name = "Null"
-    def __call__(self, radData) :
+    def __call__(self, currTime, radData) :
         return [], []
 register_sensing(NullSensingSys)
 
