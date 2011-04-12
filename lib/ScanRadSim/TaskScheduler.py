@@ -86,7 +86,8 @@ class TaskScheduler(object) :
         Us = [aJob.true_update_period(self._remain_time(aJob) + jobtime) for
               aJob, jobtime in
               zip(self.jobs + [self.surveil_job],
-                  self._job_lifetimes + [self._schedlifetime])]
+                  self._job_lifetimes + [self._schedlifetime]) if
+              aJob.loopcnt_frac >= 0.35]
         #print Us
         #print [str(life) for life in self._job_lifetimes + [self._schedlifetime]]
 
@@ -95,7 +96,8 @@ class TaskScheduler(object) :
             return sum([max_u * _to_secs(aJob.T) /
                         _to_secs(prd) for aJob, prd in
                         zip(self.jobs + [self.surveil_job], Us) if
-                        prd != timedelta.max])
+#                        prd != timedelta.max])
+                        aJob.loopcnt_frac >= 0.35])
         except ValueError :
             return np.nan
 
