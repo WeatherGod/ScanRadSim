@@ -1,3 +1,18 @@
 ScanRadSim allows one to simulate the scan patterns of a weather radar.
 
 This project is a core part of the code needed to complete my general exam.
+
+Prequisites: Python >= 2.6 (due to timedelta math and Fractions module)
+	     NumPy 1.6
+	     SciPy
+	     Matplotlib (1.0 or better)
+	     BRadar (available from https://github.com/BVRoot/BRadar)
+
+	     (To use the `SCITish' adaptive sensing module)
+	     ZigZag (available from https://github.com/BVRoot/ZigZag)
+
+Tested with :
+	NumPy 2.0.0.dev-7134a93
+	SciPy 0.10.0.dev
+	Matplotlib 1.1.0 (development version)
+	

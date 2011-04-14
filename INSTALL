@@ -1,0 +1,7 @@
+
+Read the README notes for what other modules will be needed to make this work.
+
+To install this module (without root access), just type:
+
+$ python setup.py install --user
+
