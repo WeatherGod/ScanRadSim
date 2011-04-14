@@ -251,8 +251,7 @@ class SimpleTrackingSys(VolSensingSys) :
 register_sensing(SimpleTrackingSys)
 
 
-from ZigZag.Trackers import scit
-from ZigZag.TrackUtils import corner_dtype
+
 class SCITish(VolSensingSys) :
     """
     It is like SCIT, but not exactly...
@@ -311,6 +310,8 @@ class SCITish(VolSensingSys) :
         return jobsToAdd, jobsToRemove
 
     def _track_features(self, radData, currTime, features, labels) :
+        from ZigZag.TrackUtils import corner_dtype
+        from ZigZag.Trackers import scit
         centroids = center_of_mass(radData, labels, range(1, len(features) + 1))
         # Need to condense this down to only the *last* two dims,
         # oh, and convert to rectilinear coordinates
