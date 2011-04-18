@@ -109,10 +109,13 @@ class TaskScheduler(object) :
         In other words, the improvement factor is the average number of scans divided
         by the number of scans that would have been performed by a single radar beam.
         """
-        return (sum([aJob.loopcnt_frac / _to_secs(joblife + self._remain_time(aJob)) for
-                     aJob, joblife in zip(self.jobs, self._job_lifetimes) if
-                     aJob.loopcnt_frac != 0.0]) *
-                _to_secs(base_update_period))
+        if len(self.jobs) > 0 :
+            return (sum([aJob.loopcnt_frac / _to_secs(joblife + self._remain_time(aJob)) for
+                         aJob, joblife in zip(self.jobs, self._job_lifetimes) if
+                         (joblife + self._remain_time(aJob)) > timedelta(0)]) *
+                    _to_secs(base_update_period)) / len(self.jobs)
+        else :
+            return 0.0
 
         #print [self._remain_time(aJob) for aJob in self.jobs]
         #Us = [aJob.true_update_period(self._remain_time(aJob) + joblife) for
