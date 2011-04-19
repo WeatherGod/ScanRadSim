@@ -12,8 +12,8 @@ def register_sensing(sysClass) :
     else :
         raise ValueError("The %s is already registered by %s" % (sysClass.name, _sensing_sys[sysClass.name].__class__))
 
-def adapt(name, volume=None) :
-    return _sensing_sys[name](volume)
+def adapt(name, volume=None, **kwargs) :
+    return _sensing_sys[name](volume, **kwargs)
 
 
 
@@ -21,7 +21,7 @@ class AdaptSenseSys(object) :
     """
     Base class for any Adaptive sensing system.
     """
-    def __init__(self, volume=None) :
+    def __init__(self, volume=None, **kwargs) :
         if volume is None :
             volume = (slice(None), slice(None), slice(None))
 
@@ -47,12 +47,12 @@ class SimpleSensingSys(AdaptSenseSys) :
     greater than 40).
     """
     name = "Simple"
-    def __init__(self, volume=None) :
+    def __init__(self, volume=None, updatePeriod=20, dwell=64000, prt=800, **kwargs) :
         self.prevJobs = []
         AdaptSenseSys.__init__(self, volume)
-        self._targetU = 20
-        self._targetDwell = 64000
-        self._targetPRT = 800
+        self._targetU = updatePeriod
+        self._targetDwell = dwell
+        self._targetPRT = prt
 
     def __call__(self, currTime, radData) :
         # Find the maximum value along each radial.
@@ -151,8 +151,8 @@ class VolSensingSys(SimpleSensingSys) :
     than 40), but for the whole 3D volume.
     """
     name = "SimpleVol"
-    def __init__(self, volume=None) :
-        SimpleSensingSys.__init__(self, volume)
+    def __init__(self, volume=None, **kwargs) :
+        SimpleSensingSys.__init__(self, volume, **kwargs)
 
     def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
@@ -166,12 +166,10 @@ class SimpleTrackingSys(VolSensingSys) :
     Also, utilize a simple overlap tracking algorithm to provide tracking data.
     """
     name = "SimpleTracking"
-    def __init__(self, volume=None) :
+    def __init__(self, volume=None, updatePeriod=30, dwell=64000, prt=800, **kwargs) :
         self._jobRegions = []
-        VolSensingSys.__init__(self, volume)
-        self._targetU = 30
-        self._targetDwell = 64000
-        self._targetPRT = 800
+        VolSensingSys.__init__(self, volume, updatePeriod=updatePeriod,
+                               dwell=dwell, prt=prt, **kwargs)
 
     def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
@@ -259,7 +257,7 @@ class SCITish(VolSensingSys) :
     Perform SCIT tracking for every contiguous +35dBz region in the 3D volume.
     """
     name = "SCITish"
-    def __init__(self, volume=None) :
+    def __init__(self, volume=None, updatePeriod=30, dwell=64000, prt=800, **kwargs) :
         self._jobRegions = []
         self._stateHist = []
         self._strmTracks = []
@@ -270,11 +268,8 @@ class SCITish(VolSensingSys) :
         self.to_rect = lambda x : x
         self._speedThresh = 0.25        # TODO: just for now...
 
-        VolSensingSys.__init__(self, volume)
-
-        self._targetU = 30
-        self._targetDwell = 64000
-        self._targetPRT = 800
+        VolSensingSys.__init__(self, volume, updatePeriod=updatePeriod,
+                               dwell=dwell, prt=prt, **kwargs)
 
     def __call__(self, currTime, radData) :
         features, labels = self._find_features(radData[self.volume])
